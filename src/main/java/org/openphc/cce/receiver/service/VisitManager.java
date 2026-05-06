@@ -191,16 +191,50 @@ public class VisitManager {
     }
 
     private String extractPatientUuid(ObjectNode node) {
-        // Try subject.reference
+        // Try subject.reference (e.g. "Patient/<uuid>")
         String ref = node.path("subject").path("reference").asText("");
         if (ref.isBlank()) {
             ref = node.path("patient").path("reference").asText("");
         }
-        if (ref.isBlank()) return null;
+        if (!ref.isBlank()) {
+            // Extract UUID from ResourceType/UUID
+            String[] parts = ref.split("/");
+            return parts[parts.length - 1];
+        }
 
-        // Extract UUID from ResourceType/UUID
-        String[] parts = ref.split("/");
-        return parts[parts.length - 1];
+        // Try subject.identifier — look up patient in OpenMRS by identifier
+        String identifierValue = node.path("subject").path("identifier").path("value").asText("");
+        if (identifierValue.isBlank()) {
+            identifierValue = node.path("patient").path("identifier").path("value").asText("");
+        }
+        if (!identifierValue.isBlank()) {
+            return searchPatientByIdentifier(identifierValue);
+        }
+
+        return null;
+    }
+
+    private String searchPatientByIdentifier(String identifier) {
+        try {
+            String response = restClient.get()
+                    .uri("/patient?identifier={id}&v=default", identifier)
+                    .retrieve()
+                    .body(String.class);
+
+            JsonNode root = objectMapper.readTree(response);
+            JsonNode results = root.path("results");
+            if (results.isArray() && !results.isEmpty()) {
+                String uuid = results.get(0).path("uuid").asText(null);
+                if (uuid != null) {
+                    log.info("Resolved patient identifier '{}' → UUID '{}'", identifier, uuid);
+                    return uuid;
+                }
+            }
+            log.warn("No patient found in OpenMRS for identifier: {}", identifier);
+        } catch (Exception e) {
+            log.error("Failed to search patient by identifier '{}': {}", identifier, e.getMessage());
+        }
+        return null;
     }
 
     private String extractStartDatetime(ObjectNode node) {
