@@ -6,6 +6,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 
 import java.time.Instant;
 import java.util.Map;
@@ -42,6 +43,19 @@ public class GlobalExceptionHandler {
                 "error", "OPENMRS_CLIENT_ERROR",
                 "message", ex.getMessage(),
                 "statusCode", ex.getStatusCode(),
+                "timestamp", Instant.now().toString()
+        ));
+    }
+
+    /**
+     * A path nothing is mapped to (for example {@code /beckn/**} with {@code OPENMRS_RECEIVER_BECKN_ENABLED=false})
+     * is a 404, not a 500 from the catch-all below.
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleNoResourceFound(NoResourceFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "error", "NOT_FOUND",
+                "message", "No endpoint " + ex.getResourcePath(),
                 "timestamp", Instant.now().toString()
         ));
     }

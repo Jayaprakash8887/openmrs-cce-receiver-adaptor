@@ -112,6 +112,18 @@ OpenMRS Patient (uuid="abc-def-...", identifier[type=NID].value="ET/ADM/2023/001
           → Referral loop closed
 ```
 
+### 3.3 Over Beckn
+
+> **Status:** Built (demo), off by default. Full design: [beckn-integration.md](beckn-integration.md).
+
+Over Beckn, the referral goes straight from Spice to OpenMRS. It does not come from CCE:
+
+- **Referral in.** Spice sends a Beckn `update` on the "referrals in" contract. It arrives from `onix-bpp` at `POST /beckn/bpp-webhook/update`. The adaptor builds a FHIR `Bundle` from it and writes it through the same path as today. It answers in `cce-beckn-service`'s `Ack` / `Nack` shape: `Nack` 400 `REFERRAL_REJECTED` when the write path refuses the referral, `Nack` 500 `UNAVAILABLE` when OpenMRS is down (Spice sends again). After an `Ack` it sends `on_update` `ACCEPTED` back to Spice, with the request's `messageId`. Spice should not depend on that `on_update`: the `Ack` is the proof.
+- **Outcome.** When the clinician completes or declines the referral, the outcome goes back to Spice from the **emitter** adaptor as `on_status`, not from this adaptor.
+- **Patient.** Spice should send the `Patient` as a second performance entry. Without it the adaptor creates a placeholder patient. Two entries are allowed on this leg only, because it never reaches CCE. CCE requires exactly one performance entry per `update`.
+
+The existing `/api/v1/openmrs/fhir` endpoint is unchanged.
+
 ---
 
 ## 4. Component Responsibilities
@@ -304,4 +316,5 @@ The `requester.reference` and `performer.reference` in ServiceRequest use FHIR O
 ## 11. Related Documents
 
 - [`referral-use-case-api-walkthrough.md`](./referral-use-case-api-walkthrough.md) — Step-by-step API requests/responses at every stage including prerequisites
+- [`beckn-integration.md`](./beckn-integration.md) — The referral over Beckn
 - [`.github/copilot-instructions-rest-first.md`](../.github/copilot-instructions-rest-first.md) — Full codebase design documentation for the receiver adaptor

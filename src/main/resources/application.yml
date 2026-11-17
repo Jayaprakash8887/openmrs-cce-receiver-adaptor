@@ -77,6 +77,27 @@ spice:
     identifier-system: ${SPICE_FHIR_IDENTIFIER_SYSTEM:http://mdtlabs.com/national-id}
     timeout: ${SPICE_FHIR_TIMEOUT:30000}
 
+receiver:
+  # Beckn endpoints (POST /beckn/bpp-webhook/{action}, POST /beckn/bap-webhook/{action}).
+  # On by default on the demo-beckn branch; OPENMRS_RECEIVER_BECKN_ENABLED=false removes the endpoints (404).
+  # When on, the start fails if any id below is blank. See docs/beckn-integration.md §7.
+  # spice: the one other HMIS that OpenMRS exchanges referrals with directly (Spice in the demo).
+  beckn:
+    enabled: ${OPENMRS_RECEIVER_BECKN_ENABLED:true}    # on by default on the demo-beckn branch
+    onix:
+      bpp-caller-url: ${OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL:http://onix-bpp:8082/bpp/caller}
+    self:
+      bpp-id: ${OPENMRS_RECEIVER_BECKN_SELF_BPP_ID:}
+      bpp-uri: ${OPENMRS_RECEIVER_BECKN_SELF_BPP_URI:}
+      network-id: ${OPENMRS_RECEIVER_BECKN_NETWORK_ID:}
+    spice:
+      bap-id: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID:}
+      bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}
+      referrals-in:
+        contract-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID:}
+        transaction-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID:}
+        commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
+
 cce:
   security:
     enabled: ${CCE_SECURITY_ENABLED:false}

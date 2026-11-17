@@ -104,6 +104,44 @@ Log source: `OpenMrsNotificationClient`, `RecipientResolver`. Notification failu
 | Same alert fired twice | Dedupe TTL too short, or upstream retry storm | Raise `OPENMRS_NOTIFICATION_DEDUPE_TTL_HOURS` |
 | `Pushed alert ... to N recipient(s)` where N is unexpectedly high | `role-or-static` policy + OpenMRS `/user?role=` returns all users (server-side filter is a no-op) | Switch `OPENMRS_NOTIFICATION_RECIPIENTS_POLICY=static` |
 
+### Beckn Issues
+
+> **Status:** Built (demo), off by default. Full design: [beckn-integration.md](beckn-integration.md). The existing `/api/v1/openmrs/fhir` endpoint is unchanged.
+
+Quick checks. Run the `curl` from any container on `cce-net` that has it; on the dev host, `http://localhost:8097` reaches the adaptor too. Run the `grep` in the `openmrs-onix` checkout.
+
+```bash
+# Endpoint is on: an unsupported action should answer Nack (400) NOT_SUPPORTED, not 404
+curl -s -o /dev/null -w '%{http_code}\n' -X POST \
+  http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook/cancel \
+  -H 'Content-Type: application/json' -d '{}'
+
+# Where onix sends inbound messages
+grep -A3 target devkit/config/local-simple-routing-BPPReceiver.yaml devkit/config/local-simple-routing-BAPReceiver.yaml
+
+# One log line per Beckn message
+docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
+```
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `404` on `/beckn/bpp-webhook/*` or `/beckn/bap-webhook/*` | Beckn is off | Set `OPENMRS_RECEIVER_BECKN_ENABLED=true` and restart |
+| Adaptor does not start: `receiver.beckn.enabled=true, but these settings are missing: …` | Beckn is on but an id is blank | Set the named `BECKN_*` variables (see the Configuration Guide) |
+| `beckn direction=OUT action=on_update … result=ERROR` | `onix-bpp` caller unreachable or refused the `on_update` | Check `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` and `onix-bpp`; Spice already has its `Ack`, nothing is lost |
+| `401` on a Beckn message | onix routing points at an `/api/...` path; the bearer-token filter rejects the `Authorization: Signature …` header | Point the routing at `/beckn/bpp-webhook` and `/beckn/bap-webhook`, not `/api/...` |
+| Spice's referrals never reach the adaptor; onix logs connection errors to `host.docker.internal:8075` | `openmrs-onix` routing is still the `cce-onix` copy | Set `target.url` to `http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook` (BPPReceiver) and `.../beckn/bap-webhook` (BAPReceiver) |
+| onix cannot resolve `openmrs-cce-receiver-adaptor` | Containers on different networks | Put the adaptor and both onix containers on `cce-net` |
+| onix containers fail to start on the dev host | Host ports 8081 / 8082 taken by `keycloak` / `cce-openhim-core` | Publish onix on 8181 / 8182 |
+| Every referral gets `Nack` `BAD_REQUEST`, `openmrs_beckn_contract_mismatch_total` rises | "Referrals in" contract id differs from Spice's | Align `receiver.beckn.spice.referrals-in.contract-id` with Spice and the emitter |
+| `Nack` `REFERRAL_REJECTED` with a write-path reason | The referral failed as it would on `/api/v1/openmrs/fhir` (400, 422, or 207 without the `ServiceRequest`) | Use the Processing and SPICE-specific rows above |
+| Spice gets `Nack` (500) `UNAVAILABLE` | OpenMRS slow or down (write path answered 503, 500 or 502), or an exception | Check OpenMRS health; Spice sends again |
+| Spice or `spice-onix` times out, but the referral is written in OpenMRS | `onix-bpp`'s wait is shorter than the write path (onix default 5 s) | Raise `onix-bpp`'s `responseHeaderTimeout` above the write path's worst case. Spice's resend is caught as a repeat |
+| Referral written, but Spice never sees `ACCEPTED` | `on_update` to `onix-bpp` failed. It is sent once | Check `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` and `openmrs_beckn_on_update_sent_total{result!="ack"}`. The `Ack` is the proof; Spice should not depend on `on_update` |
+| No `on_update` logged for an event the emitter sent, or it is logged before the emitter's `Ack` | `on_update` is sent once and may come before the `Ack` | Expected. Only the `Ack` counts |
+| Referral shows a placeholder patient | Spice sent no `Patient` entry | Ask Spice to send the `Patient` as a second performance entry |
+| `confirm`, `status` or `cancel` answered `Nack` `NOT_SUPPORTED` | Not supported in the demo | Expected |
+| Outcome of a referral out not visible in OpenMRS | `on_status` from Spice is logged only | Expected in the demo (design Q5) |
+
 ---
 
 ## Log Format
@@ -130,6 +168,9 @@ Log source: `OpenMrsNotificationClient`, `RecipientResolver`. Notification failu
 | `cce_receiver_rest_latency_seconds` | < 5s (p95) | > 10s |
 | `cce_receiver_transform_errors_total` | 0 | Any increase |
 | `cce_receiver_processing_total_seconds` | < 30s per Bundle | > 60s |
+| `openmrs_beckn_messages_received_total{action="update",result="nack"}` (proposal) | 0 | Any sustained increase |
+| `openmrs_beckn_contract_mismatch_total` (proposal) | 0 | Any |
+| `openmrs_beckn_on_update_sent_total{result!="ack"}` (proposal) | 0 | Any |
 
 ---
 
