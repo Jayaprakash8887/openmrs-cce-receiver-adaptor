@@ -163,7 +163,65 @@ The adaptor returns one of the following status codes based on the per-resource 
 | `400 Bad Request` | Body is not valid JSON / not parseable as a FHIR resource | Do not retry; fix payload |
 | `401 Unauthorized` | Missing or invalid credentials (when `cce.security.enabled=true`) | Re-auth and retry |
 
-> **Retryable-failure classification.** A failure is treated as retryable only when the underlying call indicates a transient server-side or network problem. Definitive client errors (4xx with status, validation rejections from OpenMRS) are **not** retried, even if their stack-trace bodies happen to mention transport-level keywords. See `InboundResourceController#hasRetryableFailure` for the exact rules.
+> **Retryable-failure classification.** A failure is treated as retryable only when the underlying call indicates a transient server-side or network problem. Definitive client errors (4xx with status, validation rejections from OpenMRS) are **not** retried, even if their stack-trace bodies happen to mention transport-level keywords. See `ProcessingStatusResolver#isRetryableFailure` for the exact rules (shared with the Beckn endpoint).
+
+---
+
+## Beckn Endpoints
+
+> **Status:** Built (demo), off by default. Full design, samples and settings: [beckn-integration.md](beckn-integration.md).
+
+Two endpoints, present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true` (`receiver.beckn.enabled`). With it off they answer 404. They are called by the `openmrs-onix` adapter containers, which have already checked the Beckn signature and the schema. No bearer token is checked: the paths are outside the `/api/**` filter. The body is a full Beckn message; each performance entry carries one FHIR resource in a `CceClinicalEvent` box.
+
+The existing `POST /api/v1/openmrs/fhir` endpoint is unchanged.
+
+Both endpoints answer in the same `Ack` / `Nack` body as `cce-beckn-service`. Both keep the request's `context.messageId` (as `cce-beckn-service` does, a `messageId` that is not a UUID is replaced by a new one).
+
+```json
+{ "message": { "status": "ACK", "messageId": "c7d8e9f0-1a2b-4c3d-9e4f-5a6b7c8d9e0f" } }
+```
+
+```json
+{ "message": { "status": "NACK", "messageId": "c7d8e9f0-1a2b-4c3d-9e4f-5a6b7c8d9e0f",
+  "error": { "code": "REFERRAL_REJECTED", "message": "ServiceRequest/1838: patient could not be resolved" } } }
+```
+
+| Code | HTTP | When |
+|---|---|---|
+| `BAD_REQUEST` | 400 | A rule is broken: body not JSON, `context.action` not the path's action, wrong contract id, a performance entry without a `resource`, no `ServiceRequest`, more than two entries, a resource other than `ServiceRequest` / `Patient`, a missing field |
+| `NOT_SUPPORTED` | 400 | Any other action |
+| `REFERRAL_REJECTED` | 400 | The write path refused the referral (400, 422, or 207 without the `ServiceRequest`). The text carries the reason |
+| `UNAVAILABLE` | 500 | The write path answered 503, 500 or 502, OpenMRS did not answer, an exception, or 207 where the `ServiceRequest` failed for a transient reason. Send again later |
+
+Beckn uses HTTP 500 for "send again later", to match `cce-beckn-service`. `/api/v1/openmrs/fhir` keeps its 503.
+
+### POST /beckn/bpp-webhook/{action}
+
+Called by `onix-bpp`. Requests from Spice on the "referrals in" contract.
+
+| `action` | What the adaptor does | Answer |
+|---|---|---|
+| `update` | A referral. One performance entry for the `ServiceRequest`, and an optional second one for the `Patient` (allowed here because this leg never reaches CCE). Checks the contract id, builds a FHIR `Bundle` (type `transaction`, `Patient` first) from every `performanceAttributes.resource`, and writes it through the same path as `/api/v1/openmrs/fhir` | See below |
+| `confirm`, `status`, `cancel`, `select`, `init`, `track`, `rate`, `support` | Nothing. Not supported in the demo | `Nack` (400), `NOT_SUPPORTED` |
+
+| Write path result | Answer to `onix-bpp` |
+|---|---|
+| 202, or 207 with the `ServiceRequest` written | `Ack`, then `on_update` with performance status `ACCEPTED` through `onix-bpp`'s `/bpp/caller/on_update`. It keeps the request's `messageId` and `networkId`, and Spice's performance id |
+| Unknown contract id, an entry without a `resource`, no `ServiceRequest`, more than two entries | `Nack` (400), `BAD_REQUEST` (the write path is not called) |
+| 400, 422, or 207 without the `ServiceRequest` | `Nack` (400), `REFERRAL_REJECTED`, with the reason |
+| 207 where the `ServiceRequest` failed for a transient reason (5xx, 408, 429, timeout, connection) | `Nack` (500), `UNAVAILABLE` |
+| 503, 500 or 502, OpenMRS does not answer, or an exception | `Nack` (500), `UNAVAILABLE` |
+| The same referral again (same accession number) | The same as the first time |
+
+### POST /beckn/bap-webhook/{action}
+
+Called by `onix-bap`. Callbacks for messages the emitter sent.
+
+| `action` | From | What the adaptor does | Answer |
+|---|---|---|---|
+| `on_update` | OpenHIM's adaptor, or Spice | Logs `ACCEPTED` or `DUPLICATE`. It may arrive before the emitter's `Ack`, or never; nothing depends on it | `Ack` |
+| `on_status` | Spice | Logs the outcome of a referral OpenMRS sent out. Nothing is written into OpenMRS yet | `Ack` |
+| any other | — | Logs it | `Nack` (400), `NOT_SUPPORTED` |
 
 ---
 
@@ -190,6 +248,8 @@ The adaptor returns one of the following status codes based on the per-resource 
 | `cce.receiver.rest.latency` | Timer | `resourceType`, `method` | REST outbound call latency |
 | `cce.receiver.fhir.latency` | Timer | `resourceType`, `method` | FHIR outbound call latency |
 | `cce.receiver.transform.errors` | Counter | `resourceType` | Transformation failures |
+
+Beckn metrics (prefix `openmrs_beckn_`): `messages_received_total`, `callback_status_total`, `actions_unsupported_total`, `contract_mismatch_total`, `on_update_sent_total`. Labels and meaning are in [beckn-integration.md §9.1](beckn-integration.md#91-metrics).
 
 ---
 

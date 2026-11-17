@@ -167,6 +167,11 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 - [Operations Runbook](docs/operations-runbook.md)
 - [SPICE-OpenMRS Referral Use Case](docs/spice-openmrs-referral-use-case.md)
 - [Referral API Walkthrough](docs/referral-use-case-api-walkthrough.md)
+- [Beckn Integration](docs/beckn-integration.md)
+
+### Beckn
+
+Built for the demo, and on by default on the `demo-beckn` branch (`OPENMRS_RECEIVER_BECKN_ENABLED=true`; set `false` to switch it off): the adaptor gets two Beckn endpoints, `POST /beckn/bpp-webhook/{action}` (referrals from Spice, via `openmrs-onix`'s `onix-bpp`) and `POST /beckn/bap-webhook/{action}` (callbacks, logged only). They sit outside `/api/**` so the bearer-token filter does not reject the Beckn signature header. They answer in the same `Ack` / `Nack` body as `cce-beckn-service`. The existing `/api/v1/openmrs/fhir` endpoint is unchanged. See [docs/beckn-integration.md](docs/beckn-integration.md).
 
 ## Project Structure
 

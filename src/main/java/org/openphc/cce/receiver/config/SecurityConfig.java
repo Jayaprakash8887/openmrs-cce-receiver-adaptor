@@ -6,6 +6,10 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContext;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
@@ -16,6 +20,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.List;
 
 @Configuration
 @EnableWebSecurity
@@ -36,6 +41,10 @@ public class SecurityConfig {
             http.addFilterBefore(new BearerTokenFilter(securityToken), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
+                    // Beckn endpoints: the Beckn signature is checked by openmrs-onix before it
+                    // forwards. onix passes on "Authorization: Signature ...", which the bearer
+                    // check would refuse. See docs/beckn-integration.md §6.
+                    .requestMatchers("/beckn/**").permitAll()
                     .requestMatchers("/api/**").authenticated()
                     .anyRequest().permitAll()
                 );
@@ -63,7 +72,9 @@ public class SecurityConfig {
                 return;
             }
 
-            if (!path.startsWith("/api/")) {
+            // Only /api/** carries the bearer token. /beckn/** is named here as well, so that a
+            // later change to the rule below cannot catch the Beckn endpoints by accident.
+            if (path.startsWith("/beckn/") || !path.startsWith("/api/")) {
                 filterChain.doFilter(request, response);
                 return;
             }
@@ -83,6 +94,13 @@ public class SecurityConfig {
                 response.getWriter().write("{\"error\":\"Invalid token\"}");
                 return;
             }
+
+            // Record the caller as authenticated. Without this, ".authenticated()" on /api/**
+            // refuses a request with the correct token with 403.
+            SecurityContext context = SecurityContextHolder.createEmptyContext();
+            context.setAuthentication(new UsernamePasswordAuthenticationToken(
+                    "cce-client", null, List.of(new SimpleGrantedAuthority("ROLE_CCE_CLIENT"))));
+            SecurityContextHolder.setContext(context);
 
             filterChain.doFilter(request, response);
         }
