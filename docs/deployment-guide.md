@@ -149,8 +149,6 @@ The Beckn endpoints are optional. Set `OPENMRS_RECEIVER_BECKN_ENABLED=true` to t
       OPENMRS_RECEIVER_BECKN_SELF_BPP_URI: https://openmrs.example.org/bpp/receiver
       OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID: bap.spice.example.org
       OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI: https://spice.example.org/bap/receiver
-      OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID: e2c9a7b4-6f1d-4b3a-9c8e-7d6f5a4b3c2d
-      OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID: a41f6b2c-9d3e-4a7b-8c1d-2e3f4a5b6c7d
 ```
 
 The ids above are made up. With `OPENMRS_RECEIVER_BECKN_ENABLED=true` the adaptor does not start while any of them is blank. All settings are in the [Configuration Guide](configuration-guide.md#beckn).

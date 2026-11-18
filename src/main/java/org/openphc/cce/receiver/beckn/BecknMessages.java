@@ -50,13 +50,12 @@ public class BecknMessages {
     }
 
     /**
-     * The {@code on_update} for an accepted referral. Spice is the bap, OpenMRS the bpp. The contract
-     * and {@code transactionId} are the "referrals in" ones from the settings. It keeps the request's
-     * {@code messageId}; its one performance entry carries Spice's performance id.
+     * The {@code on_update} for an accepted referral. Spice is the bap, OpenMRS the bpp. It keeps the
+     * request's contract id, {@code transactionId} and {@code messageId}; its one performance entry
+     * carries Spice's performance id.
      */
     public ObjectNode onUpdateAccepted(ReferralMessage referral) {
         BecknProperties.Spice peer = props.spice();
-        BecknProperties.ReferralsIn contract = peer.referralsIn();
 
         ObjectNode context = mapper.createObjectNode();
         context.put("version", VERSION);
@@ -69,14 +68,14 @@ public class BecknMessages {
         context.put("bapUri", peer.bapUri());
         context.put("bppId", props.self().bppId());
         context.put("bppUri", props.self().bppUri());
-        context.put("transactionId", contract.transactionId());
+        context.put("transactionId", referral.transactionId());
         context.put("messageId", referral.messageId());
         context.put("timestamp", Instant.now().toString());
 
         ObjectNode root = mapper.createObjectNode();
         root.set("context", context);
         ObjectNode c = root.putObject("message").putObject("contract");
-        c.put("id", contract.contractId());
+        c.put("id", referral.contractId());
         c.putObject("status").put("code", "ACTIVE");
         c.putArray("commitments").add(commitment.get());
         ObjectNode performance = c.putArray("performance").addObject();

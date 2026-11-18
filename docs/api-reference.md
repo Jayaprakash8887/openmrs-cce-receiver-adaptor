@@ -207,7 +207,7 @@ Called by `onix-bpp`. Requests from Spice on the "referrals in" contract.
 | Write path result | Answer to `onix-bpp` |
 |---|---|
 | 202, or 207 with the `ServiceRequest` written | `Ack`, then `on_update` with performance status `ACCEPTED` through `onix-bpp`'s `/bpp/caller/on_update`. It keeps the request's `messageId` and `networkId`, and Spice's performance id |
-| Unknown contract id, an entry without a `resource`, no `ServiceRequest`, more than two entries | `Nack` (400), `BAD_REQUEST` (the write path is not called) |
+| Unknown `bapId`, missing contract id, an entry without a `resource`, no `ServiceRequest`, more than two entries | `Nack` (400), `BAD_REQUEST` (the write path is not called) |
 | 400, 422, or 207 without the `ServiceRequest` | `Nack` (400), `REFERRAL_REJECTED`, with the reason |
 | 207 where the `ServiceRequest` failed for a transient reason (5xx, 408, 429, timeout, connection) | `Nack` (500), `UNAVAILABLE` |
 | 503, 500 or 502, OpenMRS does not answer, or an exception | `Nack` (500), `UNAVAILABLE` |
@@ -249,7 +249,7 @@ Called by `onix-bap`. Callbacks for messages the emitter sent.
 | `cce.receiver.fhir.latency` | Timer | `resourceType`, `method` | FHIR outbound call latency |
 | `cce.receiver.transform.errors` | Counter | `resourceType` | Transformation failures |
 
-Beckn metrics (prefix `openmrs_beckn_`): `messages_received_total`, `callback_status_total`, `actions_unsupported_total`, `contract_mismatch_total`, `on_update_sent_total`. Labels and meaning are in [beckn-integration.md §9.1](beckn-integration.md#91-metrics).
+Beckn metrics (prefix `openmrs_beckn_`): `messages_received_total`, `callback_status_total`, `actions_unsupported_total`, `peer_unknown_total`, `on_update_sent_total`. Labels and meaning are in [beckn-integration.md §9.1](beckn-integration.md#91-metrics).
 
 ---
 

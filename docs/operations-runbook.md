@@ -132,7 +132,7 @@ docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
 | Spice's referrals never reach the adaptor; onix logs connection errors to `host.docker.internal:8075` | `openmrs-onix` routing is still the `cce-onix` copy | Set `target.url` to `http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook` (BPPReceiver) and `.../beckn/bap-webhook` (BAPReceiver) |
 | onix cannot resolve `openmrs-cce-receiver-adaptor` | Containers on different networks | Put the adaptor and both onix containers on `cce-net` |
 | onix containers fail to start on the dev host | Host ports 8081 / 8082 taken by `keycloak` / `cce-openhim-core` | Publish onix on 8181 / 8182 |
-| Every referral gets `Nack` `BAD_REQUEST`, `openmrs_beckn_contract_mismatch_total` rises | "Referrals in" contract id differs from Spice's | Align `receiver.beckn.spice.referrals-in.contract-id` with Spice and the emitter |
+| Every referral gets `Nack` `BAD_REQUEST`, `openmrs_beckn_peer_unknown_total` rises | Spice's `bapId` differs from `receiver.beckn.spice.bap-id` | Align `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID` with Spice's registered subscriber id |
 | `Nack` `REFERRAL_REJECTED` with a write-path reason | The referral failed as it would on `/api/v1/openmrs/fhir` (400, 422, or 207 without the `ServiceRequest`) | Use the Processing and SPICE-specific rows above |
 | Spice gets `Nack` (500) `UNAVAILABLE` | OpenMRS slow or down (write path answered 503, 500 or 502), or an exception | Check OpenMRS health; Spice sends again |
 | Spice or `spice-onix` times out, but the referral is written in OpenMRS | `onix-bpp`'s wait is shorter than the write path (onix default 5 s) | Raise `onix-bpp`'s `responseHeaderTimeout` above the write path's worst case. Spice's resend is caught as a repeat |
@@ -169,7 +169,7 @@ docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
 | `cce_receiver_transform_errors_total` | 0 | Any increase |
 | `cce_receiver_processing_total_seconds` | < 30s per Bundle | > 60s |
 | `openmrs_beckn_messages_received_total{action="update",result="nack"}` (proposal) | 0 | Any sustained increase |
-| `openmrs_beckn_contract_mismatch_total` (proposal) | 0 | Any |
+| `openmrs_beckn_peer_unknown_total` (proposal) | 0 | Any |
 | `openmrs_beckn_on_update_sent_total{result!="ack"}` (proposal) | 0 | Any |
 
 ---

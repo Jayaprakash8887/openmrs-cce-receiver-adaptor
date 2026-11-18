@@ -296,13 +296,13 @@ The callback endpoint (`/beckn/bap-webhook`) answers `Ack` to `on_update` and `o
 
 ## 4. A Referral from Spice (`update`)
 
-Every message here is on the "referrals in" contract. Spice is the consumer (BAP). OpenMRS is the provider (BPP) and issued the contract ids.
+Every message here is on the "referrals in" contract. Spice is the consumer (BAP). OpenMRS is the provider (BPP). There is no `confirm`, so no contract id is issued: Spice picks one, and the receiver echoes it.
 
 ### 4.1 Steps
 
 1. **Spice sends `update`.** One performance entry holds the `ServiceRequest`. A second entry should hold the `Patient`. Two entries are allowed on this leg only: the referral never reaches CCE, which requires exactly one performance entry per `update`. The receiver checks: exactly one `ServiceRequest` (with a performance `id`), at most one `Patient`, nothing else, at most two entries. Otherwise `Nack` (400) `BAD_REQUEST`.
 2. **`onix-bpp` checks it** and forwards it to `POST /beckn/bpp-webhook/update`. The receiver checks that `context.action`, when present, is the action in the path (`BAD_REQUEST` otherwise).
-3. **The receiver checks the contract id** against `receiver.beckn.spice.referrals-in.contract-id`. A different id → `Nack` (400) `BAD_REQUEST`, and `openmrs_beckn_contract_mismatch_total` goes up.
+3. **The receiver checks the sender and the contract id.** `context.bapId` must be `receiver.beckn.spice.bap-id`; another sender → `Nack` (400) `BAD_REQUEST`, and `openmrs_beckn_peer_unknown_total` goes up. `message.contract.id` must be present; any value is accepted, as cce-beckn-service does, and a blank one → `Nack` (400) `BAD_REQUEST`.
 4. **The receiver builds a FHIR `Bundle`** of type `transaction` from `performanceAttributes.resource` of every performance entry, `Patient` first (§4.2). An entry without a `resource` → `Nack` (400) `BAD_REQUEST`.
 5. **The receiver hands the `Bundle` to its existing write path:** `InboundProcessingService.process(payload, correlationId, sourceSystem)`, the same call `InboundResourceController` makes for `/api/v1/openmrs/fhir`. `correlationId` is `context.messageId`. `sourceSystem` is `context.bapId`.
 6. **The receiver answers `onix-bpp`** with `Ack` or `Nack` (§3.4, §4.3).
@@ -451,7 +451,7 @@ Spice should treat it as a log entry only. It may reach Spice before the `Ack` d
 |---|---|
 | `bapId`, `bapUri` | `receiver.beckn.spice.bap-id`, `bap-uri` |
 | `bppId`, `bppUri` | `receiver.beckn.self.bpp-id`, `bpp-uri` |
-| `transactionId`, `contract.id` | `receiver.beckn.spice.referrals-in.*` |
+| `transactionId`, `contract.id` | The request's `context.transactionId` and `message.contract.id` |
 | `commitments` | `receiver.beckn.spice.referrals-in.commitment-file` |
 | `messageId` | The request's `context.messageId` |
 | `networkId` | The request's `context.networkId`. Else `receiver.beckn.self.network-id`. Left out when both are empty |
@@ -518,8 +518,6 @@ receiver:
       bap-id: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID:}               # e.g. bap.spice.example.org
       bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}             # e.g. https://spice.example.org/bap/receiver
       referrals-in:
-        contract-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID:}         # e.g. e2c9a7b4-6f1d-4b3a-9c8e-7d6f5a4b3c2d
-        transaction-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID:}   # e.g. a41f6b2c-9d3e-4a7b-8c1d-2e3f4a5b6c7d
         commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
 ```
 
@@ -530,11 +528,9 @@ receiver:
 | `receiver.beckn.self.bpp-id`, `bpp-uri` | `OPENMRS_RECEIVER_BECKN_SELF_BPP_ID`, `OPENMRS_RECEIVER_BECKN_SELF_BPP_URI` | — (required) | OpenMRS's provider id and address, as registered in the network registry |
 | `receiver.beckn.self.network-id` | `OPENMRS_RECEIVER_BECKN_NETWORK_ID` | empty | Optional. Put into `context.networkId` of the `on_update` when the request has none. The request's own `networkId` wins |
 | `receiver.beckn.spice.bap-id`, `bap-uri` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID`, `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI` | — (required) | Spice's consumer id and address |
-| `receiver.beckn.spice.referrals-in.contract-id` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID` | — (required) | The "referrals in" contract. OpenMRS issues it |
-| `receiver.beckn.spice.referrals-in.transaction-id` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID` | — (required) | Its `transactionId` |
 | `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update` (the draft of design Appendix B.1). A JSON object with an `id`, read once at start |
 
-The "referrals in" ids must match the emitter's `emitter.beckn.spice.referrals-in` and Spice's settings. `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only.
+There are no "referrals in" contract or transaction id settings: the `on_update` echoes the request's. `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only.
 
 ---
 
@@ -599,10 +595,10 @@ Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label va
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
-| `openmrs_beckn_messages_received_total` | Counter | `peer`, `contract`, `action`, `result` (`ack`, `nack`, `unavailable`) | Messages received on `/beckn/*`, and the answer given |
+| `openmrs_beckn_messages_received_total` | Counter | `peer`, `action`, `result` (`ack`, `nack`, `unavailable`) | Messages received on `/beckn/*`, and the answer given |
 | `openmrs_beckn_callback_status_total` | Counter | `peer`, `action`, `status` (`ACCEPTED`, `DUPLICATE`, `COMPLETED`, `DECLINED`) | Status codes in `on_update` and `on_status` |
 | `openmrs_beckn_actions_unsupported_total` | Counter | `action` | Requests answered "not supported" |
-| `openmrs_beckn_contract_mismatch_total` | Counter | `peer` | `update` with a contract id the settings do not know |
+| `openmrs_beckn_peer_unknown_total` | Counter | `peer` | `update` from a `bapId` that is not `receiver.beckn.spice.bap-id` |
 | `openmrs_beckn_on_update_sent_total` | Counter | `result` (`success`, `failed`, `dropped`) | `on_update` `ACCEPTED` sent to Spice |
 
 ### 9.2 Logging

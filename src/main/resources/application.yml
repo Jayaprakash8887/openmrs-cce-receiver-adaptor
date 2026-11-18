@@ -94,8 +94,6 @@ receiver:
       bap-id: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID:}
       bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}
       referrals-in:
-        contract-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID:}
-        transaction-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID:}
         commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
 
 cce:

@@ -40,12 +40,15 @@ public record BecknProperties(
     /** The one HMIS peer (Spice). */
     public record Spice(String bapId, String bapUri, ReferralsIn referralsIn) {
         public Spice {
-            if (referralsIn == null) referralsIn = new ReferralsIn(null, null, null);
+            if (referralsIn == null) referralsIn = new ReferralsIn(null);
         }
     }
 
-    /** The "referrals in" contract. OpenMRS issues it. */
-    public record ReferralsIn(String contractId, String transactionId, Resource commitmentFile) {
+    /**
+     * The "referrals in" commitment. There is no confirm, so no contract id is issued: the receiver
+     * accepts any non-blank one and echoes the request's contract id and transaction id.
+     */
+    public record ReferralsIn(Resource commitmentFile) {
     }
 
     /** Throws when a required setting is missing, naming every missing one. */
@@ -56,9 +59,6 @@ public record BecknProperties(
         require(missing, self.bppUri(), "receiver.beckn.self.bpp-uri");
         require(missing, spice.bapId(), "receiver.beckn.spice.bap-id");
         require(missing, spice.bapUri(), "receiver.beckn.spice.bap-uri");
-        require(missing, spice.referralsIn().contractId(), "receiver.beckn.spice.referrals-in.contract-id");
-        require(missing, spice.referralsIn().transactionId(),
-                "receiver.beckn.spice.referrals-in.transaction-id");
         if (spice.referralsIn().commitmentFile() == null) {
             missing.add("receiver.beckn.spice.referrals-in.commitment-file");
         }
