@@ -17,8 +17,6 @@ class BecknConfigTest {
             "receiver.beckn.self.bpp-uri=https://openmrs.example.org/bpp/receiver",
             "receiver.beckn.spice.bap-id=bap.spice.example.org",
             "receiver.beckn.spice.bap-uri=https://spice.example.org/bap/receiver",
-            "receiver.beckn.spice.referrals-in.contract-id=c",
-            "receiver.beckn.spice.referrals-in.transaction-id=t",
             "receiver.beckn.spice.referrals-in.commitment-file=classpath:beckn/commitment-referral.json"
     };
 
@@ -54,8 +52,7 @@ class BecknConfigTest {
             assertThat(ctx.getStartupFailure()).rootCause()
                     .hasMessageContaining("receiver.beckn.self.bpp-uri")
                     .hasMessageContaining("receiver.beckn.spice.bap-id")
-                    .hasMessageContaining("receiver.beckn.spice.referrals-in.contract-id")
-                    .hasMessageContaining("receiver.beckn.spice.referrals-in.transaction-id")
+                    .hasMessageNotContaining("contract-id")
                     .hasMessageNotContaining("receiver.beckn.self.bpp-id,");
         });
     }

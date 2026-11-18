@@ -55,8 +55,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         "receiver.beckn.self.network-id=net-from-settings",
         "receiver.beckn.spice.bap-id=" + BAP_ID,
         "receiver.beckn.spice.bap-uri=https://spice.example.org/bap/receiver",
-        "receiver.beckn.spice.referrals-in.contract-id=" + CONTRACT_ID,
-        "receiver.beckn.spice.referrals-in.transaction-id=" + TRANSACTION_ID,
         "cce.security.enabled=true",
         "cce.security.token=secret-token",
         "openmrs.notification.enabled=false"
@@ -282,10 +280,31 @@ class BecknWebhookEnabledTest {
     }
 
     @Test
-    void wrong_contract_gives_bad_request_and_never_reaches_the_write_path() throws Exception {
-        double before = count("openmrs.beckn.contract.mismatch", "peer", BAP_ID);
-        assertNack(bpp("update", message("update", "not-the-contract", null, srEntry())), 400, "BAD_REQUEST");
-        assertThat(count("openmrs.beckn.contract.mismatch", "peer", BAP_ID)).isEqualTo(before + 1);
+    void any_contract_id_is_accepted_and_echoed_in_on_update() throws Exception {
+        writePathAnswers(srCreated());
+        assertAck(bpp("update", message("update", "spice-chosen-contract", null, srEntry())));
+        List<LoggedRequest> sent = onUpdatesReceived(1);
+        assertThat(sent).hasSize(1);
+        JsonNode onUpdate = OM.readTree(sent.get(0).getBodyAsString());
+        assertThat(onUpdate.path("message").path("contract").path("id").asText())
+                .isEqualTo("spice-chosen-contract");
+        assertThat(onUpdate.path("context").path("transactionId").asText()).isEqualTo(TRANSACTION_ID);
+    }
+
+    @Test
+    void missing_contract_id_gives_bad_request() throws Exception {
+        assertNack(bpp("update", message("update", "", null, srEntry())), 400, "BAD_REQUEST")
+                .andExpect(jsonPath("$.message.error.message").value("message.contract.id is missing"));
+        verify(processingService, never()).process(any(), any(), any());
+    }
+
+    @Test
+    void unknown_sender_gives_bad_request_and_never_reaches_the_write_path() throws Exception {
+        String other = "bap.other.example.org";
+        double before = count("openmrs.beckn.peer.unknown", "peer", other);
+        String body = referral(srEntry()).replace("\"bapId\":\"" + BAP_ID + "\"", "\"bapId\":\"" + other + "\"");
+        assertNack(bpp("update", body), 400, "BAD_REQUEST");
+        assertThat(count("openmrs.beckn.peer.unknown", "peer", other)).isEqualTo(before + 1);
         verify(processingService, never()).process(any(), any(), any());
     }
 

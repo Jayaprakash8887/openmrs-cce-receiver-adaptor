@@ -75,10 +75,8 @@ Turns on `POST /beckn/bpp-webhook/{action}` and `POST /beckn/bap-webhook/{action
 | `receiver.beckn.self.bpp-id` | `OPENMRS_RECEIVER_BECKN_SELF_BPP_ID` | — (required) | OpenMRS's provider (BPP) id in the network registry |
 | `receiver.beckn.self.bpp-uri` | `OPENMRS_RECEIVER_BECKN_SELF_BPP_URI` | — (required) | OpenMRS's provider address |
 | `receiver.beckn.self.network-id` | `OPENMRS_RECEIVER_BECKN_NETWORK_ID` | empty | Optional. Put into `context.networkId` of the `on_update` when the request has none. A `networkId` in the request is copied over and wins |
-| `receiver.beckn.spice.bap-id` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID` | — (required) | Spice's consumer (BAP) id |
+| `receiver.beckn.spice.bap-id` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID` | — (required) | Spice's consumer (BAP) id. An `update` from any other `bapId` gets `Nack` (400) `BAD_REQUEST`. Any non-blank `message.contract.id` is accepted and echoed in `on_update` |
 | `receiver.beckn.spice.bap-uri` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI` | — (required) | Spice's consumer address |
-| `receiver.beckn.spice.referrals-in.contract-id` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID` | — (required) | The "referrals in" contract id. A referral on any other contract gets `Nack` (400) `BAD_REQUEST` |
-| `receiver.beckn.spice.referrals-in.transaction-id` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID` | — (required) | The "referrals in" `transactionId` |
 | `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update`. A JSON object with an `id`; read once at start |
 
 ```yaml
@@ -95,8 +93,6 @@ receiver:
       bap-id: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID:}               # e.g. bap.spice.example.org
       bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}             # e.g. https://spice.example.org/bap/receiver
       referrals-in:
-        contract-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_CONTRACT_ID:}         # e.g. e2c9a7b4-6f1d-4b3a-9c8e-7d6f5a4b3c2d
-        transaction-id: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_TRANSACTION_ID:}   # e.g. a41f6b2c-9d3e-4a7b-8c1d-2e3f4a5b6c7d
         commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
 ```
 

@@ -44,14 +44,18 @@ public class BecknUnwrapper {
         JsonNode contract = body.path("message").path("contract");
         String bapId = Json.text(context, "bapId");
 
+        if (!props.spice().bapId().equals(bapId)) {
+            metrics.unknownPeer(bapId);
+            throw BecknException.badRequest(bapId.isBlank()
+                    ? "context.bapId is missing"
+                    : "context.bapId '" + BecknMessageLog.clean(bapId) + "' is not a known referral sender");
+        }
+
+        // No confirm in the demo, so nobody issues a contract id: any non-blank id is accepted
+        // (as cce-beckn-service does) and echoed back in on_update.
         String contractId = Json.text(contract, "id");
-        String expected = props.spice().referralsIn().contractId();
-        if (!expected.equals(contractId)) {
-            metrics.contractMismatch(bapId);
-            throw BecknException.badRequest(contractId.isBlank()
-                    ? "message.contract.id is missing"
-                    : "message.contract.id '" + BecknMessageLog.clean(contractId)
-                            + "' is not the referrals-in contract");
+        if (contractId.isBlank()) {
+            throw BecknException.badRequest("message.contract.id is missing");
         }
 
         JsonNode performance = contract.path("performance");

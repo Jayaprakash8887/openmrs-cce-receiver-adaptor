@@ -105,13 +105,13 @@ public class BecknReferralService {
                 .httpStatus(answer.writeStatus());
 
         if (answer.ack()) {
-            metrics.received(referral.bapId(), referral.contractId(), "update", "ack");
+            metrics.received(referral.bapId(), "update", "ack");
             line.result("ACK").write();
             scheduleOnUpdate(referral);
             return ResponseEntity.ok(messages.ack(referral.messageId()));
         }
 
-        metrics.received(referral.bapId(), referral.contractId(), "update",
+        metrics.received(referral.bapId(), "update",
                 answer.httpStatus().is5xxServerError() ? "unavailable" : "nack");
         line.result("NACK").code(answer.code()).error(answer.reason()).write();
         return ResponseEntity.status(answer.httpStatus())
@@ -124,7 +124,7 @@ public class BecknReferralService {
         String messageId = Json.text(context, "messageId");
         String peer = Json.text(context, "bapId");
         String contractId = body == null ? "" : Json.text(body.path("message").path("contract"), "id");
-        metrics.received(peer, contractId, action, e.status().is5xxServerError() ? "unavailable" : "nack");
+        metrics.received(peer, action, e.status().is5xxServerError() ? "unavailable" : "nack");
         BecknMessageLog.in(action)
                 .peer(peer)
                 .contractId(contractId)

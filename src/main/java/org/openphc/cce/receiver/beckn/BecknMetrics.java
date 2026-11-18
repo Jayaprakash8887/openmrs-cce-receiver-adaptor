@@ -29,9 +29,9 @@ public class BecknMetrics {
     }
 
     /** {@code result}: ack, nack or unavailable. */
-    public void received(String peer, String contract, String action, String result) {
+    public void received(String peer, String action, String result) {
         registry.counter("openmrs.beckn.messages.received",
-                "peer", label(peer), "contract", label(contract), "action", action(action), "result", result)
+                "peer", label(peer), "action", action(action), "result", result)
                 .increment();
     }
 
@@ -46,8 +46,9 @@ public class BecknMetrics {
         registry.counter("openmrs.beckn.actions.unsupported", "action", action(action)).increment();
     }
 
-    public void contractMismatch(String peer) {
-        registry.counter("openmrs.beckn.contract.mismatch", "peer", label(peer)).increment();
+    /** An {@code update} from a {@code bapId} that is not the configured referral sender. */
+    public void unknownPeer(String peer) {
+        registry.counter("openmrs.beckn.peer.unknown", "peer", label(peer)).increment();
     }
 
     /** {@code result}: success, failed or dropped. */

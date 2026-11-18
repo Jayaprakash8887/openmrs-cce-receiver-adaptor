@@ -58,7 +58,7 @@ public class BecknCallbackService {
         } else {
             logEntry(action, context, contractId, peer, null);
         }
-        metrics.received(peer, contractId, action, "ack");
+        metrics.received(peer, action, "ack");
         return ResponseEntity.ok(messages.ack(Json.text(context, "messageId")));
     }
 
@@ -86,7 +86,7 @@ public class BecknCallbackService {
         JsonNode context = body == null ? null : body.path("context");
         String peer = Json.text(context, "bppId");
         String contractId = body == null ? "" : Json.text(body.path("message").path("contract"), "id");
-        metrics.received(peer, contractId, action, "nack");
+        metrics.received(peer, action, "nack");
         BecknMessageLog.in(action)
                 .peer(peer)
                 .contractId(contractId)
