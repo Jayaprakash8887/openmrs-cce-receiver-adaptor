@@ -126,6 +126,24 @@ public class OpenMrsRestClient {
         return null;
     }
 
+    /**
+     * The state of one order — {@code uuid}, {@code voided}, {@code action}, {@code dateStopped},
+     * {@code fulfillerStatus}, {@code accessionNumber} — or {@code null} when it cannot be read.
+     */
+    public JsonNode getOrderState(String orderUuid) {
+        try {
+            String response = restClient.get()
+                    .uri("/order/{uuid}?v=custom:(uuid,voided,action,dateStopped,fulfillerStatus,accessionNumber)",
+                            orderUuid)
+                    .retrieve()
+                    .body(String.class);
+            return objectMapper.readTree(response);
+        } catch (Exception e) {
+            log.warn("Reading order {} failed: {}", orderUuid, e.getMessage());
+            return null;
+        }
+    }
+
     public String searchByIdentifier(String endpoint, String identifier) {
         try {
             String response = restClient.get()

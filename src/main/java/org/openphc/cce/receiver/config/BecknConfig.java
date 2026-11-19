@@ -51,14 +51,17 @@ public class BecknConfig {
                 .build();
     }
 
-    /** Sends {@code on_update} after the Ack. A full queue drops it: Spice already has its Ack. */
+    /**
+     * Sends the callbacks ({@code on_update}, {@code on_select}, {@code on_init}, {@code on_confirm},
+     * {@code on_status}) after the Ack. A full queue drops one: Spice already has its Ack.
+     */
     @Bean(ON_UPDATE_EXECUTOR)
     public Executor becknOnUpdateExecutor() {
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
         ex.setCorePoolSize(2);
         ex.setMaxPoolSize(4);
         ex.setQueueCapacity(200);
-        ex.setThreadNamePrefix("beckn-on-update-");
+        ex.setThreadNamePrefix("beckn-callback-");
         ex.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         ex.setWaitForTasksToCompleteOnShutdown(true);
         ex.setAwaitTerminationSeconds(10);

@@ -95,6 +95,10 @@ receiver:
       bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}
       referrals-in:
         commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
+    # Health referrals (select / init / confirm / status): the OpenMRS identifier type for each patient health id
+    # system, as SYSTEM=type pairs, e.g. "ABHA=national-id;HFR=hfr-id". A system without a pair is used as the
+    # type name (OpenMRS creates it the first time).
+    health-id-types: ${OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES:}
 
 cce:
   security:

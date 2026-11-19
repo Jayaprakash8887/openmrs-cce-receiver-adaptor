@@ -17,10 +17,14 @@ import java.util.concurrent.RejectedExecutionException;
 /**
  * Handles {@code POST /beckn/bpp-webhook/{action}}: a referral from Spice (docs/beckn-integration.md §4).
  *
- * <p>{@code update} → check the contract → {@code Bundle} → the existing write path
- * ({@link InboundProcessingService#process}) → {@code Ack} or {@code Nack}. After an {@code Ack}, an
- * {@code on_update} {@code ACCEPTED} goes to Spice through {@code onix-bpp}, on another thread. Every
- * other action is answered {@code NOT_SUPPORTED}.
+ * <p>{@code update} (FHIR resources in {@code performance[]}) → check the contract → {@code Bundle} →
+ * the existing write path ({@link InboundProcessingService#process}) → {@code Ack} or {@code Nack}.
+ * After an {@code Ack}, an {@code on_update} {@code ACCEPTED} goes to Spice through {@code onix-bpp},
+ * on another thread.
+ *
+ * <p>{@code select}, {@code init}, {@code confirm} and {@code status} (a {@code hrf:HealthReferral}
+ * contract, §4A) go to {@link HealthReferralService}. Every other action is answered
+ * {@code NOT_SUPPORTED}.
  */
 @Service
 @ConditionalOnBecknEnabled
@@ -35,11 +39,13 @@ public class BecknReferralService {
     private final OnixClient onix;
     private final BecknMetrics metrics;
     private final Executor onUpdateExecutor;
+    private final HealthReferralService healthReferrals;
 
     public BecknReferralService(BecknUnwrapper unwrapper, InboundProcessingService processingService,
                                 BecknAnswerMapper answerMapper, BecknMessages messages, OnixClient onix,
                                 BecknMetrics metrics,
-                                @Qualifier(BecknConfig.ON_UPDATE_EXECUTOR) Executor onUpdateExecutor) {
+                                @Qualifier(BecknConfig.ON_UPDATE_EXECUTOR) Executor onUpdateExecutor,
+                                HealthReferralService healthReferrals) {
         this.unwrapper = unwrapper;
         this.processingService = processingService;
         this.answerMapper = answerMapper;
@@ -47,6 +53,7 @@ public class BecknReferralService {
         this.onix = onix;
         this.metrics = metrics;
         this.onUpdateExecutor = onUpdateExecutor;
+        this.healthReferrals = healthReferrals;
     }
 
     public ResponseEntity<JsonNode> handle(String action, String rawBody) {
@@ -67,11 +74,14 @@ public class BecknReferralService {
                 throw BecknException.badRequest("context.action '" + BecknMessageLog.clean(claimed)
                         + "' does not match the request path '" + BecknMessageLog.clean(action) + "'");
             }
-            if (!"update".equals(action)) {
-                metrics.unsupported(action);
-                throw BecknException.notSupported(action);
+            if ("update".equals(action)) {
+                return handleUpdate(body);
             }
-            return handleUpdate(body);
+            if (HealthReferralService.ACTIONS.contains(action)) {
+                return healthReferrals.handle(action, body);
+            }
+            metrics.unsupported(action);
+            throw BecknException.notSupported(action);
         } catch (BecknException e) {
             return nack(action, body, e);
         } catch (RuntimeException e) {

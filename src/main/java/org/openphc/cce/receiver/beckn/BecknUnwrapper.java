@@ -2,8 +2,6 @@ package org.openphc.cce.receiver.beckn;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.openphc.cce.receiver.config.BecknProperties;
 import org.springframework.stereotype.Component;
 
@@ -15,7 +13,7 @@ import java.util.List;
  * (docs/beckn-integration.md §4.1, §4.2).
  *
  * <ul>
- *   <li>The contract id must be the "referrals in" contract.</li>
+ *   <li>{@code context.bapId} must be Spice; the contract id must be non-blank and is echoed back.</li>
  *   <li>One or two performance entries, each with a FHIR resource in
  *       {@code performanceAttributes.resource}: exactly one {@code ServiceRequest}, and at most one
  *       {@code Patient}. Two entries are allowed on this leg only.</li>
@@ -112,7 +110,7 @@ public class BecknUnwrapper {
         ordered.add(serviceRequest);
 
         return new ReferralMessage(
-                bundle(ordered).toString(),
+                TransactionBundle.of(mapper, ordered).toString(),
                 Json.text(serviceRequest, "id"),
                 performanceId,
                 contractId,
@@ -120,25 +118,5 @@ public class BecknUnwrapper {
                 Json.text(context, "messageId"),
                 bapId,
                 Json.text(context, "networkId"));
-    }
-
-    private ObjectNode bundle(List<JsonNode> resources) {
-        ObjectNode bundle = mapper.createObjectNode();
-        bundle.put("resourceType", "Bundle");
-        bundle.put("type", "transaction");
-        ArrayNode entries = bundle.putArray("entry");
-        for (JsonNode resource : resources) {
-            String type = Json.text(resource, "resourceType");
-            String id = Json.text(resource, "id");
-            ObjectNode entry = entries.addObject();
-            if (!id.isBlank()) {
-                entry.put("fullUrl", type + "/" + id);
-            }
-            entry.set("resource", resource.deepCopy());
-            ObjectNode request = entry.putObject("request");
-            request.put("method", "POST");
-            request.put("url", type);
-        }
-        return bundle;
     }
 }

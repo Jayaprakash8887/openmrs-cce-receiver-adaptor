@@ -220,10 +220,10 @@ Both endpoints exist only when `receiver.beckn.enabled=true`. With it off, no Be
 
 | Endpoint | Called by | Handles |
 |---|---|---|
-| `POST /beckn/bpp-webhook/{action}` | `onix-bpp` | `update` from Spice: a referral |
+| `POST /beckn/bpp-webhook/{action}` | `onix-bpp` | A referral from Spice: `update` with FHIR resources (§4), or the health-referral flow `select` / `init` / `confirm` / `status` (§4A) |
 | `POST /beckn/bap-webhook/{action}` | `onix-bap` | `on_update` from the HIE or Spice. `on_status` from Spice: the outcome of a referral out |
 
-onix has already checked the Beckn signature and the schema. It appends the action name to the path. The body is a full Beckn message (`context` plus `message`). Each performance entry carries one FHIR resource in a `CceClinicalEvent` box.
+onix has already checked the Beckn signature and the schema. It appends the action name to the path. The body is a full Beckn message (`context` plus `message`). In an `update`, each performance entry carries one FHIR resource in a `CceClinicalEvent` box; in the health-referral flow, the contract is a `hrf:HealthReferral` (§4A).
 
 Both endpoints answer in the same `Ack` / `Nack` body as `cce-beckn-service` (§3.4).
 
@@ -231,9 +231,11 @@ Both endpoints answer in the same `Ack` / `Nack` body as `cce-beckn-service` (§
 
 | `action` | What the receiver does | Answer |
 |---|---|---|
-| `update` | A referral from Spice (§4) | By the write path's result (§4.3) |
-| `confirm`, `status`, `cancel` | Nothing. Not supported in the demo | `Nack` (400), `NOT_SUPPORTED` |
-| `select`, `init`, `track`, `rate`, `support` | Nothing. Not supported | `Nack` (400), `NOT_SUPPORTED` |
+| `update` | A referral from Spice, as FHIR resources (§4) | By the write path's result (§4.3) |
+| `select`, `init` | A health referral being agreed (§4A). Nothing is written | `Ack`, then `on_select` / `on_init` `DRAFT` |
+| `confirm` | A health referral: Patient and referral order written through the write path (§4A) | By the write path's result (§4.3), then `on_confirm` `ACTIVE` |
+| `status` | Reads the order of a health referral (§4A) | `Ack`, then `on_status` with the order's state |
+| `cancel`, `track`, `rate`, `support` | Nothing. Not supported | `Nack` (400), `NOT_SUPPORTED` |
 
 ### 3.2 `POST /beckn/bap-webhook/{action}`
 
@@ -462,6 +464,66 @@ It is sent on a small thread pool (2–4 threads, queue of 200). A full queue dr
 
 ---
 
+## 4A. A Health Referral from Spice (`select` / `init` / `confirm` / `status`)
+
+Spice also refers patients with the Beckn health-referral flow it uses with care-coordinator: the same four verbs, and a contract whose `contractAttributes` is a `hrf:HealthReferral` (DHP Health* schema pack v2.1). The patient and the referrer are `participants`; there is no FHIR resource. OpenMRS answers as the provider (BPP), the same way care-coordinator answers as a BPP. `update` (§4) is unchanged and still accepted.
+
+### 4A.1 What each verb does
+
+| Request | OpenMRS | Answer | Callback (through `onix-bpp`) |
+|---|---|---|---|
+| `select` | Nothing written | `Ack` | `on_select`: the contract echoed, `status` and `lifecycleState` `DRAFT` |
+| `init` | Nothing written | `Ack` | `on_init`: the same, `DRAFT` |
+| `confirm` | The patient and the referral order go through the write path, as a FHIR `Bundle` (§4A.2) | `Ack`, or `Nack` read from the write path exactly as for `update` (§4.3) | `on_confirm`: the contract echoed, `ACTIVE`. Only after an `Ack` |
+| `status` | Reads the referral's order | `Ack` | `on_status` with the order's state (§4A.4). None when OpenMRS has no order for the referral |
+
+Every request is checked first, and a broken rule gets `Nack` (400) `BAD_REQUEST`: `context.bapId` must be `receiver.beckn.spice.bap-id`, and the referral needs a coordination id (`contractAttributes.coordinationId`, or `contract.id` when absent). `confirm` also needs a participant with `participantRole` `PATIENT` that has a `descriptor.name` and at least one `healthIds[]` entry.
+
+Every callback echoes the request's contract (participants, consideration, `contractAttributes`) with only the states changed. It keeps the request's `transactionId` and `messageId`, and the request's `networkId` when it has one. It goes to `receiver.beckn.spice.bap-uri`. Where a request lacks what the schemas require, the callback fills it in: a commitment (the "referrals in" one) and a `HealthReferral` with `coordinationId` and `targetCriteria`.
+
+The coordination id stays the same from `select` to `status` and is the referral id: it becomes the OpenMRS order's accession number. A repeated `confirm` is therefore found as a duplicate and answered `Ack` (and `on_confirm`) without a second order.
+
+### 4A.2 The Bundle built at `confirm`
+
+The same `Patient` + `ServiceRequest` pair an `update` carries, so everything after it (patient match or create, referral encounter, order, notification) is the existing write path.
+
+| FHIR | From the health referral |
+|---|---|
+| `Patient.id` | The first `healthIds[].value` of the `PATIENT` participant (characters outside `A-Z a-z 0-9 - .` become `-`) |
+| `Patient.identifier[]` | One per `healthIds[]` entry: `system`, `value`, and `type.text` = the OpenMRS identifier type (`receiver.beckn.health-id-types`, default: the system itself) |
+| `Patient.name` | `descriptor.name`: the last word is the family name, the rest the given names |
+| `Patient.gender` | `participantAttributes.gender`: `MALE` → male, `FEMALE` → female, `OTHER` → other, otherwise unknown |
+| `Patient.birthDate` | `participantAttributes.dateOfBirth`, else `1970-01-01` (as for a placeholder patient) |
+| `ServiceRequest.id`, `identifier[0]` | The coordination id (`identifier[0]` makes it the accession number) |
+| `ServiceRequest.identifier[1]` | `targetCriteria.serviceCategory` (display, else code), else `healthServiceType`, with a system ending in `/category`: the order concept is named after it |
+| `ServiceRequest.category` | SNOMED `3457005` Patient referral: the write path treats it as a referral |
+| `ServiceRequest.priority` | `clinicalUrgencyTier`: `ROUTINE` → routine, `URGENT` → urgent, `EMERGENCY` → stat |
+| `ServiceRequest.subject` | `Patient/<Patient.id>`, with the first health id as identifier |
+| `ServiceRequest.performer` | The `FIELD_WORKER` participant (else the first one that is not the patient): `Practitioner/<first health id>`, with its name. It becomes the orderer (an external provider) |
+| `ServiceRequest.patientInstruction` | `contractAttributes.referralReason`, else "Referral for <service>". It becomes the order's instructions |
+| `ServiceRequest.note` | Service, procedures, equipment, modality, urgency, scheme and referrer, as one line of text |
+| `ServiceRequest.authoredOn` | `context.timestamp`, to the second |
+
+A patient is matched by each health id: one OpenMRS already has is reused, otherwise a new one is created with the mapped identifiers. The CCE protocol's referral steps read the order's instructions (for example "ANC Visit 1"), so that text must be in `referralReason`.
+
+### 4A.3 Schemas in onix
+
+The messages carry `@context` addresses on `schema.beckn.io`, which no longer serves the pack (it redirects to `schema.nfh.global`, which answers 404). Every onix adapter holds a local copy instead: deploy-scripts `k8s/beckn/onix/health-schema/`, loaded through the ConfigMap `onix-schema` with the CCE schemas. Without it, onix refuses the message before it reaches the receiver.
+
+### 4A.4 `status`
+
+The receiver keeps, in memory, where each confirmed referral landed (patient and order, by coordination id, at most 10 000). After a restart it finds the patient by the health id in the `status` request, then the order by accession number. The order's state gives the answer:
+
+| OpenMRS order | `contract.status.code` | `lifecycleState` |
+|---|---|---|
+| Voided, or discontinued | `CANCELLED` | `CANCELLED` |
+| `fulfillerStatus` `COMPLETED`, or stopped | `COMPLETE` | `CLOSED` |
+| Otherwise | `ACTIVE` | `ACTIVE` |
+
+The contract echoed is the confirmed one when the receiver still holds it, otherwise the request's. A `status` for a referral OpenMRS has no order for is answered `Ack` with no `on_status` (as care-coordinator does), and counted in `openmrs_beckn_status_unknown_total`.
+
+---
+
 ## 5. Callbacks
 
 | Callback | Why it arrives | Logged as |
@@ -519,16 +581,18 @@ receiver:
       bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}             # e.g. https://spice.example.org/bap/receiver
       referrals-in:
         commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
+    health-id-types: ${OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES:}   # e.g. ABHA=national-id
 ```
 
 | Property | Env Var | Default | Description |
 |---|---|---|---|
 | `receiver.beckn.enabled` | `OPENMRS_RECEIVER_BECKN_ENABLED` | `true` (on `demo-beckn`) | Turns both Beckn endpoints on. With it on, the ids below are required at start |
-| `receiver.beckn.onix.bpp-caller-url` | `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` | `http://onix-bpp:8082/bpp/caller` | `onix-bpp`'s caller, for `on_update` |
+| `receiver.beckn.onix.bpp-caller-url` | `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` | `http://onix-bpp:8082/bpp/caller` | `onix-bpp`'s caller, for every callback (`on_update`, `on_select`, `on_init`, `on_confirm`, `on_status`) |
 | `receiver.beckn.self.bpp-id`, `bpp-uri` | `OPENMRS_RECEIVER_BECKN_SELF_BPP_ID`, `OPENMRS_RECEIVER_BECKN_SELF_BPP_URI` | — (required) | OpenMRS's provider id and address, as registered in the network registry |
 | `receiver.beckn.self.network-id` | `OPENMRS_RECEIVER_BECKN_NETWORK_ID` | empty | Optional. Put into `context.networkId` of the `on_update` when the request has none. The request's own `networkId` wins |
 | `receiver.beckn.spice.bap-id`, `bap-uri` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID`, `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI` | — (required) | Spice's consumer id and address |
-| `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update` (the draft of design Appendix B.1). A JSON object with an `id`, read once at start |
+| `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update`, and in a health-referral callback whose request has none (the draft of design Appendix B.1). A JSON object with an `id`, read once at start |
+| `receiver.beckn.health-id-types` | `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` | empty | Health referrals (§4A): the OpenMRS identifier type for each patient health id system, as `SYSTEM=type` pairs separated by `;`, systems matched ignoring case. Example: `ABHA=national-id`. A system without a pair is used as the type name, and OpenMRS creates the type the first time |
 
 There are no "referrals in" contract or transaction id settings: the `on_update` echoes the request's. `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only.
 
@@ -598,12 +662,14 @@ Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label va
 | `openmrs_beckn_messages_received_total` | Counter | `peer`, `action`, `result` (`ack`, `nack`, `unavailable`) | Messages received on `/beckn/*`, and the answer given |
 | `openmrs_beckn_callback_status_total` | Counter | `peer`, `action`, `status` (`ACCEPTED`, `DUPLICATE`, `COMPLETED`, `DECLINED`) | Status codes in `on_update` and `on_status` |
 | `openmrs_beckn_actions_unsupported_total` | Counter | `action` | Requests answered "not supported" |
-| `openmrs_beckn_peer_unknown_total` | Counter | `peer` | `update` from a `bapId` that is not `receiver.beckn.spice.bap-id` |
+| `openmrs_beckn_peer_unknown_total` | Counter | `peer` | A referral (`update`, `select`, ...) from a `bapId` that is not `receiver.beckn.spice.bap-id` |
 | `openmrs_beckn_on_update_sent_total` | Counter | `result` (`success`, `failed`, `dropped`) | `on_update` `ACCEPTED` sent to Spice |
+| `openmrs_beckn_callback_sent_total` | Counter | `action` (`on_select`, `on_init`, `on_confirm`, `on_status`), `result` (`success`, `failed`, `dropped`) | Health-referral callbacks sent to Spice (§4A) |
+| `openmrs_beckn_status_unknown_total` | Counter | — | `status` for a referral OpenMRS has no order for; no `on_status` sent |
 
 ### 9.2 Logging
 
-One log line per Beckn message: each one received, and each `on_update` sent. Logger `org.openphc.cce.receiver.beckn.messages`, in `key=value` form, for example:
+One log line per Beckn message: each one received, and each callback sent (`on_update`, and for health referrals `on_select`, `on_init`, `on_confirm`, `on_status`). For a health referral, `referralId` is the coordination id. Logger `org.openphc.cce.receiver.beckn.messages`, in `key=value` form, for example:
 
 ```
 beckn direction=IN action=update peer=bap.spice.example.org contractId=e2c9… transactionId=a41f… messageId=c7d8… performanceId=8a1b… resourceType=ServiceRequest referralId=1838 httpStatus=202 result=ACK
@@ -612,12 +678,12 @@ beckn direction=IN action=update peer=bap.spice.example.org contractId=e2c9… t
 | Field | Example |
 |---|---|
 | `direction` | `IN`, `OUT` |
-| `action` | `update`, `on_update`, `on_status` |
+| `action` | `update`, `select`, `init`, `confirm`, `status`, `on_update`, `on_select`, `on_init`, `on_confirm`, `on_status` |
 | `peer` | `context.bapId` or `context.bppId` |
 | `contractId`, `transactionId`, `messageId`, `performanceId` | ids from the message |
 | `resourceType` | `ServiceRequest` |
 | `referralId` | `1838` (the `ServiceRequest` id) |
-| `result` | `ACK`, `NACK`, `ERROR`, `ACCEPTED`, `DUPLICATE`, `COMPLETED`, `DECLINED` |
+| `result` | `ACK`, `ACK_DUPLICATE`, `NACK`, `ERROR`, `SKIPPED`, `ACCEPTED`, `DUPLICATE`, `COMPLETED`, `DECLINED`, or the `lifecycleState` of a health-referral callback |
 | `code` | `BAD_REQUEST`, `NOT_SUPPORTED`, `REFERRAL_REJECTED`, `UNAVAILABLE`. Only on a `Nack` |
 | `httpStatus` | The write path's status, or onix's |
 | `error` | Only on failure |
@@ -634,8 +700,10 @@ Never logged: message bodies, the FHIR resource, the patient id. The referral id
 | CCE alerts to OpenMRS | Out of scope. They do not go through the HIE and their route is not decided. `CceCareAlert` is not used | Q3: later, a bell notification. The receiver today rejects a `CommunicationRequest` and stores a `Task` that no screen shows |
 | Allowed systems | No allow-list. Any system in the network registry that `onix-bpp` accepts can send a referral | Needed for a live system |
 | Peers | One HMIS peer (Spice). Every referral in is assumed to come from it | More than one peer needs more settings |
-| `confirm` | Not sent, and answered `Nack` (400) `NOT_SUPPORTED`. One fixed "referrals in" contract | Q1: one contract per referral in a live system |
-| `status`, `cancel` | Answered `Nack` (400) `NOT_SUPPORTED`. A sent referral cannot be withdrawn | — |
+| `confirm` | Accepted in the health-referral flow (§4A): it writes the referral. Not part of the `update` flow | — |
+| `status` | Health referrals only: answered from the OpenMRS order (§4A.4). The index is in memory; after a restart the request must carry the patient's health id | Persist the index if Spice sends minimal `status` requests |
+| `cancel` | Answered `Nack` (400) `NOT_SUPPORTED`. A sent referral cannot be withdrawn | Map to discontinuing the order |
+| Outcome of a health referral | Only on request (`status`). The emitter's own `on_status` (referrals-in leg) still sends the `update`-flow shape | Send an unsolicited `on_status` in the health-referral shape when the order is completed |
 | Callback contracts | The receiver holds only the "referrals in" contract. It does not check the contract id on callbacks | — |
 | Ack / Nack JSON | The same shape as `cce-beckn-service` (§3.4) | The adapter test (design §11) checks onix passes it through unchanged |
 | `Nack` reason text | The first `errorMessage` of the write path, cut to 200 characters, not scrubbed | OpenMRS error texts should hold no patient data; check this before a live system |

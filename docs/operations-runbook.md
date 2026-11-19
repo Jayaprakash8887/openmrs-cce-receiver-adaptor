@@ -139,7 +139,11 @@ docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
 | Referral written, but Spice never sees `ACCEPTED` | `on_update` to `onix-bpp` failed. It is sent once | Check `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` and `openmrs_beckn_on_update_sent_total{result!="ack"}`. The `Ack` is the proof; Spice should not depend on `on_update` |
 | No `on_update` logged for an event the emitter sent, or it is logged before the emitter's `Ack` | `on_update` is sent once and may come before the `Ack` | Expected. Only the `Ack` counts |
 | Referral shows a placeholder patient | Spice sent no `Patient` entry | Ask Spice to send the `Patient` as a second performance entry |
-| `confirm`, `status` or `cancel` answered `Nack` `NOT_SUPPORTED` | Not supported in the demo | Expected |
+| `cancel` answered `Nack` `NOT_SUPPORTED` | Not supported in the demo | Expected |
+| A health referral (`select` …) never reaches the adaptor; onix logs `failed to load schema from https://schema.beckn.io/Health…` | The adapter has no local copy of the Health* schemas | Redeploy with deploy-scripts that ship `k8s/beckn/onix/health-schema/`; check `kubectl get cm onix-schema` lists `HealthReferral__v2.1__attributes.yaml` |
+| `confirm` answered `BAD_REQUEST` "no participant with participantRole PATIENT" or "no … healthIds" | Spice sent no patient, or a patient without a health id | Ask Spice to send the `PATIENT` participant with at least one `healthIds` entry |
+| `status` answered `Ack` but no `on_status` | OpenMRS has no order for that coordination id (`openmrs_beckn_status_unknown_total`): never confirmed, or the adaptor restarted and the request carries no patient health id | Expected; Spice can send `status` with the participants |
+| Health-referral patient gets a new identifier type named after the system (e.g. `ABHA`) | No `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` pair for it | Set e.g. `ABHA=national-id` if that id should be the national id |
 | Outcome of a referral out not visible in OpenMRS | `on_status` from Spice is logged only | Expected in the demo (design Q5) |
 
 ---

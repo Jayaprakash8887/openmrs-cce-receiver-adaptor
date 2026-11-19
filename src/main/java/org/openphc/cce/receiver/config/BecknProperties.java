@@ -17,16 +17,37 @@ public record BecknProperties(
         boolean enabled,
         Onix onix,
         Self self,
-        Spice spice
+        Spice spice,
+        String healthIdTypes
 ) {
 
     public BecknProperties {
         if (onix == null) onix = new Onix(null);
         if (self == null) self = new Self(null, null, null);
         if (spice == null) spice = new Spice(null, null, null);
+        if (healthIdTypes == null) healthIdTypes = "";
     }
 
-    /** {@code onix-bpp}'s caller endpoint, used for {@code on_update}. */
+    /**
+     * The OpenMRS identifier type for a health id of a health referral (participant
+     * {@code healthIds[].system}, for example {@code ABHA}), from {@code receiver.beckn.health-id-types}:
+     * {@code SYSTEM=type} pairs separated by {@code ;} or {@code ,}, systems matched ignoring case.
+     * Without a pair the system itself is the type name; OpenMRS creates the type the first time.
+     */
+    public String identifierTypeFor(String healthIdSystem) {
+        for (String pair : healthIdTypes.split("[;,]")) {
+            int eq = pair.indexOf('=');
+            if (eq > 0 && pair.substring(0, eq).trim().equalsIgnoreCase(healthIdSystem)) {
+                String type = pair.substring(eq + 1).trim();
+                if (!type.isEmpty()) {
+                    return type;
+                }
+            }
+        }
+        return healthIdSystem;
+    }
+
+    /** {@code onix-bpp}'s caller endpoint, used for every callback ({@code on_update}, {@code on_confirm}, ...). */
     public record Onix(String bppCallerUrl) {
         public Onix {
             if (bppCallerUrl == null || bppCallerUrl.isBlank()) bppCallerUrl = "http://onix-bpp:8082/bpp/caller";

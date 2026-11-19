@@ -46,7 +46,7 @@ public class BecknMetrics {
         registry.counter("openmrs.beckn.actions.unsupported", "action", action(action)).increment();
     }
 
-    /** An {@code update} from a {@code bapId} that is not the configured referral sender. */
+    /** A referral ({@code update}, {@code select}, ...) from a {@code bapId} that is not the configured sender. */
     public void unknownPeer(String peer) {
         registry.counter("openmrs.beckn.peer.unknown", "peer", label(peer)).increment();
     }
@@ -54,6 +54,19 @@ public class BecknMetrics {
     /** {@code result}: success, failed or dropped. */
     public void onUpdateSent(String result) {
         registry.counter("openmrs.beckn.on.update.sent", "result", result).increment();
+    }
+
+    /**
+     * A callback of the health-referral flow sent to {@code onix-bpp} ({@code on_select}, {@code on_init},
+     * {@code on_confirm}, {@code on_status}). {@code result}: success, failed or dropped.
+     */
+    public void callbackSent(String action, String result) {
+        registry.counter("openmrs.beckn.callback.sent", "action", action(action), "result", result).increment();
+    }
+
+    /** A {@code status} for a coordination id OpenMRS has no order for: no {@code on_status} is sent. */
+    public void statusUnknown() {
+        registry.counter("openmrs.beckn.status.unknown").increment();
     }
 
     private static String action(String action) {
