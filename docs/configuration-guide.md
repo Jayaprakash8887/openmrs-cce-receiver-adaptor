@@ -77,7 +77,8 @@ Turns on `POST /beckn/bpp-webhook/{action}` and `POST /beckn/bap-webhook/{action
 | `receiver.beckn.self.network-id` | `OPENMRS_RECEIVER_BECKN_NETWORK_ID` | empty | Optional. Put into `context.networkId` of the `on_update` when the request has none. A `networkId` in the request is copied over and wins |
 | `receiver.beckn.spice.bap-id` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID` | — (required) | Spice's consumer (BAP) id. An `update` from any other `bapId` gets `Nack` (400) `BAD_REQUEST`. Any non-blank `message.contract.id` is accepted and echoed in `on_update` |
 | `receiver.beckn.spice.bap-uri` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI` | — (required) | Spice's consumer address |
-| `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update`. A JSON object with an `id`; read once at start |
+| `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update`, and in a health-referral callback whose request has none. A JSON object with an `id`; read once at start |
+| `receiver.beckn.health-id-types` | `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` | empty | Health referrals: OpenMRS identifier type per patient health id system, `SYSTEM=type` pairs separated by `;` (e.g. `ABHA=national-id`). Without a pair the system is the type name, created on first use |
 
 ```yaml
 receiver:
@@ -94,6 +95,7 @@ receiver:
       bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}             # e.g. https://spice.example.org/bap/receiver
       referrals-in:
         commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
+    health-id-types: ${OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES:}   # e.g. ABHA=national-id
 ```
 
 The ids have no defaults. With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the default on the `demo-beckn` branch, the adaptor does not start when any of them is blank; the error names every missing setting. The example ids are made up. The "referrals in" ids must match the emitter's and Spice's settings.

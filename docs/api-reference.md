@@ -197,12 +197,15 @@ Beckn uses HTTP 500 for "send again later", to match `cce-beckn-service`. `/api/
 
 ### POST /beckn/bpp-webhook/{action}
 
-Called by `onix-bpp`. Requests from Spice on the "referrals in" contract.
+Called by `onix-bpp`. Referrals from Spice: `update` with FHIR resources, or the health-referral flow (`select` / `init` / `confirm` / `status`, a `hrf:HealthReferral` contract; [beckn-integration.md §4A](beckn-integration.md)).
 
 | `action` | What the adaptor does | Answer |
 |---|---|---|
 | `update` | A referral. One performance entry for the `ServiceRequest`, and an optional second one for the `Patient` (allowed here because this leg never reaches CCE). Checks the contract id, builds a FHIR `Bundle` (type `transaction`, `Patient` first) from every `performanceAttributes.resource`, and writes it through the same path as `/api/v1/openmrs/fhir` | See below |
-| `confirm`, `status`, `cancel`, `select`, `init`, `track`, `rate`, `support` | Nothing. Not supported in the demo | `Nack` (400), `NOT_SUPPORTED` |
+| `select`, `init` | A health referral being agreed. Nothing is written | `Ack`, then `on_select` / `on_init` (`DRAFT`), echoing the contract |
+| `confirm` | A health referral: the `PATIENT` participant and the `HealthReferral` become a `Patient` + referral `ServiceRequest` `Bundle`, written through the same path. The coordination id is the order's accession number | As for `update` (below), then `on_confirm` (`ACTIVE`) instead of `on_update` |
+| `status` | Reads the order of a health referral | `Ack`, then `on_status` with the order's state (`ACTIVE`, `COMPLETE`/`CLOSED`, `CANCELLED`); none when there is no order |
+| `cancel`, `track`, `rate`, `support` | Nothing. Not supported | `Nack` (400), `NOT_SUPPORTED` |
 
 | Write path result | Answer to `onix-bpp` |
 |---|---|

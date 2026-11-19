@@ -331,10 +331,11 @@ class BecknWebhookEnabledTest {
 
     @Test
     void other_actions_give_not_supported() throws Exception {
-        for (String action : List.of("confirm", "status", "cancel", "select", "init", "track", "rate", "support")) {
+        // select, init, confirm and status are the health-referral flow (HealthReferralFlowTest).
+        for (String action : List.of("cancel", "track", "rate", "support", "discover")) {
             assertNack(bpp(action, message(action, CONTRACT_ID, null, srEntry())), 400, "NOT_SUPPORTED");
         }
-        assertThat(count("openmrs.beckn.actions.unsupported", "action", "confirm")).isGreaterThanOrEqualTo(1);
+        assertThat(count("openmrs.beckn.actions.unsupported", "action", "cancel")).isGreaterThanOrEqualTo(1);
         verify(processingService, never()).process(any(), any(), any());
     }
 
