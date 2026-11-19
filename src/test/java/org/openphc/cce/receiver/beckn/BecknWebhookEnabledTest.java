@@ -92,6 +92,9 @@ class BecknWebhookEnabledTest {
     @MockitoBean
     OpenMrsConfigDiscovery discovery;
 
+    @MockitoBean
+    CareAlertNotifier careAlerts;
+
     @BeforeEach
     void setUp() {
         reset(processingService);
@@ -399,6 +402,34 @@ class BecknWebhookEnabledTest {
         assertThat(count("openmrs.beckn.callback.status", "action", "on_status", "status", "COMPLETED"))
                 .isGreaterThanOrEqualTo(1);
         verify(processingService, never()).process(any(), any(), any());
+    }
+
+    @Test
+    void a_cce_care_alert_on_status_is_acked_and_notified() throws Exception {
+        String alert = """
+                {"context":{"version":"2.0.0","action":"on_status","bapId":"bap.openmrs.example.org",
+                  "bppId":"bpp.cce.example.org","transactionId":"%s","messageId":"%s"},
+                 "message":{"contract":{"status":{"code":"ACTIVE"},"commitments":[{"id":"c"}],
+                   "performance":[%s]}}}""".formatted(TRANSACTION_ID, MESSAGE_ID, CareAlertNotifierTest.ALERT_ENTRY);
+        when(careAlerts.notify(any())).thenReturn(true);
+
+        bap("on_status", alert).andExpect(status().isOk())
+                .andExpect(jsonPath("$.message.status").value("ACK"));
+
+        long until = System.currentTimeMillis() + 3000;
+        while (System.currentTimeMillis() < until && count("openmrs.beckn.care.alerts", "result", "notified") < 1) {
+            Thread.sleep(20);
+        }
+        ArgumentCaptor<JsonNode> entry = ArgumentCaptor.forClass(JsonNode.class);
+        verify(careAlerts).notify(entry.capture());
+        assertThat(entry.getValue().at("/performanceAttributes/patientId").asText()).isEqualTo("0123123123133");
+        assertThat(count("openmrs.beckn.care.alerts", "result", "notified")).isGreaterThanOrEqualTo(1);
+    }
+
+    @Test
+    void an_on_status_without_a_care_alert_is_not_notified() throws Exception {
+        bap("on_status", callback("on_status", "COMPLETED")).andExpect(status().isOk());
+        verify(careAlerts, never()).notify(any());
     }
 
     @Test

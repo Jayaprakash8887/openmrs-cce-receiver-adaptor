@@ -64,7 +64,12 @@ public class BecknMetrics {
         registry.counter("openmrs.beckn.callback.sent", "action", action(action), "result", result).increment();
     }
 
-    /** A {@code status} for a coordination id OpenMRS has no order for: no {@code on_status} is sent. */
+    /** A CCE care alert received in {@code on_status}. {@code result}: notified, not-notified or dropped. */
+    public void careAlert(String result) {
+        registry.counter("openmrs.beckn.care.alerts", "result", result).increment();
+    }
+
+        /** A {@code status} for a coordination id OpenMRS has no order for: no {@code on_status} is sent. */
     public void statusUnknown() {
         registry.counter("openmrs.beckn.status.unknown").increment();
     }
