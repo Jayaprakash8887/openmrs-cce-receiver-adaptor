@@ -175,6 +175,14 @@ public class ResourceRouter {
         // Determine create vs update
         String existingUuid = resolveExistingUuid(resourceNode, resourceType, entry);
 
+        // A patient OpenMRS already has (found by one of the inbound identifiers) is reused as it is: a
+        // referral must not overwrite the demographics OpenMRS holds, and creating it again would be
+        // refused (the identifier is unique). The referral's other resources then point at this patient.
+        if ("Patient".equals(resourceType) && existingUuid != null) {
+            log.info("Patient already in OpenMRS ({}) — reusing it", existingUuid);
+            return RoutingResult.duplicate(resourceType, existingUuid, "REST:/patient");
+        }
+
         RoutingResult result;
         if (existingUuid != null) {
             result = openMrsRestClient.update(transformResult.endpoint(), existingUuid,
