@@ -18,6 +18,10 @@ import org.springframework.web.client.RestClient;
 @Component
 public class OpenMrsRestClient {
 
+    // searchByIdentifier joins the endpoint ("/patient") to the URI template rather than passing it as a
+    // template variable: a variable is encoded, so "/patient" would be sent as "%2Fpatient" and the
+    // search would always miss.
+
     private static final Logger log = LoggerFactory.getLogger(OpenMrsRestClient.class);
     private final RestClient restClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
@@ -147,7 +151,7 @@ public class OpenMrsRestClient {
     public String searchByIdentifier(String endpoint, String identifier) {
         try {
             String response = restClient.get()
-                    .uri("{endpoint}?identifier={id}&v=default", endpoint, identifier)
+                    .uri(endpoint + "?identifier={id}&v=default", identifier)
                     .retrieve()
                     .body(String.class);
 
