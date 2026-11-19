@@ -99,7 +99,7 @@ public class ConceptResolver {
 
     public String searchConceptByName(String name) {
         if (name == null || name.isBlank()) return null;
-        String cacheKey = "name:" + name.toLowerCase();
+        String cacheKey = nameKey(name);
         String cached = cache.get(cacheKey);
         if (cached != null) return NOT_FOUND.equals(cached) ? null : cached;
 
@@ -256,9 +256,18 @@ public class ConceptResolver {
         return autoCreateConcept(name);
     }
 
+    private static String nameKey(String name) {
+        return "name:" + name.toLowerCase();
+    }
+
     /**
      * Auto-creates a concept in OpenMRS with Misc Order class and Text datatype.
      * Used when no existing concept matches the given name.
+     *
+     * <p>The name search caches "not found", so a created concept replaces that entry; otherwise the
+     * next request skips the search, tries to create the concept again and OpenMRS refuses the
+     * duplicate name. When creating fails (for example the concept already exists, made by another
+     * request or an earlier run), the name is searched again past the cache.
      */
     public String autoCreateConcept(String name) {
         if (name == null || name.isBlank()) return null;
@@ -293,11 +302,17 @@ public class ConceptResolver {
             String uuid = root.path("uuid").asText(null);
             if (uuid != null) {
                 log.info("Auto-created concept '{}' with UUID: {}", name, uuid);
+                cache.put(nameKey(name), uuid);
             }
             return uuid;
         } catch (Exception e) {
             log.warn("Failed to auto-create concept '{}': {}", name, e.getMessage());
-            return null;
+            cache.remove(nameKey(name));
+            String existing = searchConceptByName(name);
+            if (existing != null) {
+                log.info("Concept '{}' already exists: {}", name, existing);
+            }
+            return existing;
         }
     }
 
