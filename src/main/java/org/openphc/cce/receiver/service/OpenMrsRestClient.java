@@ -151,17 +151,32 @@ public class OpenMrsRestClient {
     public String searchByIdentifier(String endpoint, String identifier) {
         try {
             String response = restClient.get()
-                    .uri(endpoint + "?identifier={id}&v=default", identifier)
+                    .uri(endpoint + "?identifier={id}&v=custom:(uuid,identifiers:(identifier,voided))", identifier)
                     .retrieve()
                     .body(String.class);
-
-            JsonNode root = objectMapper.readTree(response);
-            JsonNode results = root.path("results");
-            if (results.isArray() && !results.isEmpty()) {
-                return results.get(0).path("uuid").asText(null);
-            }
+            return exactIdentifierMatch(objectMapper.readTree(response).path("results"), identifier);
         } catch (Exception e) {
             log.debug("Identifier search failed: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * The uuid of the first result that has an identifier exactly equal to {@code identifier}, or
+     * null. OpenMRS's identifier search can match anywhere in an identifier (searching
+     * {@code 0123456789} also returns {@code 0101234567890}), so a result is taken only on an exact
+     * match.
+     */
+    public static String exactIdentifierMatch(JsonNode results, String identifier) {
+        if (results == null || !results.isArray() || identifier == null) {
+            return null;
+        }
+        for (JsonNode result : results) {
+            for (JsonNode id : result.path("identifiers")) {
+                if (identifier.equals(id.path("identifier").asText(null)) && !id.path("voided").asBoolean(false)) {
+                    return result.path("uuid").asText(null);
+                }
+            }
         }
         return null;
     }

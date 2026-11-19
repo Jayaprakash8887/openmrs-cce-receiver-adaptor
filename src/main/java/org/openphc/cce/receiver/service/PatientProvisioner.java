@@ -91,12 +91,13 @@ public class PatientProvisioner {
     public String lookup(String identifierValue) {
         try {
             String response = restClient.get()
-                    .uri("/patient?identifier={id}&v=default", identifierValue)
+                    .uri("/patient?identifier={id}&v=custom:(uuid,identifiers:(identifier,voided))", identifierValue)
                     .retrieve()
                     .body(String.class);
             JsonNode results = objectMapper.readTree(response).path("results");
-            if (results.isArray() && !results.isEmpty()) {
-                String uuid = results.get(0).path("uuid").asText(null);
+            // Exact match only: OpenMRS's identifier search also returns identifiers that merely contain the value.
+            String uuid = OpenMrsRestClient.exactIdentifierMatch(results, identifierValue);
+            if (uuid != null) {
                 log.info("Resolved patient identifier '{}' to UUID: {}", identifierValue, uuid);
                 return uuid;
             }
