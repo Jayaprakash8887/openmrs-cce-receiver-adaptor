@@ -14,24 +14,24 @@ import java.util.Locale;
 import java.util.StringJoiner;
 
 /**
- * Turns a CCE care alert into an OpenMRS notification (docs/beckn-integration.md §5.1).
+ * Turns a CCE care alert into an OpenMRS notification (docs/sygnal-integration.md §4).
  *
- * <p>CCE sends an alert as an {@code on_status} whose performance entry carries a
- * {@code cce:CceCareAlert} box: the patient's national id ({@code patientId}), the severity, the
- * step's status and the FHIR {@code CommunicationRequest} or {@code Task} the intelligence service
- * built. The notification goes through the same {@code /alert} endpoint and to the same recipients
- * as "New referral received".
+ * <p>CCE sends an alert as a {@code sygnal/signal/emit}: a {@code sygnal:Signal} whose
+ * {@code signalAttributes} is a {@code cce:CceCareAlert} box with the patient's national id
+ * ({@code patientId}), the CCE severity, the step's status, the SLA status (optional) and the FHIR
+ * {@code CommunicationRequest} or {@code Task} the intelligence service built. The notification goes
+ * through the same {@code /alert} endpoint and to the same recipients as "New referral received".
  *
  * <ul>
  *   <li>title — the alert text: {@code payload[0].contentString}, or {@code Task.description}</li>
- *   <li>body — the patient (national id, and the OpenMRS name when the patient is known), the step
- *       status and the protocol step</li>
+ *   <li>body — the patient's national id (and whether OpenMRS knows the patient), the step status,
+ *       the SLA status and the protocol step</li>
  *   <li>link — the patient's chart, when a patient has that national id in OpenMRS</li>
  *   <li>severity — LOW → INFO, MEDIUM / HIGH → WARNING, CRITICAL → CRITICAL</li>
  * </ul>
  *
- * A repeated alert (same delivery id) is not notified twice. Never throws: the {@code on_status}
- * is acknowledged whatever happens here.
+ * A repeated alert (same delivery id) is not notified twice. Never throws: the signal has already
+ * been acknowledged when this runs.
  */
 @Component
 @ConditionalOnBecknEnabled
@@ -56,25 +56,28 @@ public class CareAlertNotifier {
         this.openMrs = openMrs;
     }
 
-    /** Whether a performance entry carries a CCE care alert. */
-    public static boolean isCareAlert(JsonNode entry) {
-        return entry != null && ALERT_TYPE.equals(Json.text(entry.path("performanceAttributes"), "@type"));
+    /** Whether a {@code sygnal:Signal} ({@code message} of the request) carries a CCE care alert. */
+    public static boolean isCareAlert(JsonNode signal) {
+        return signal != null && ALERT_TYPE.equals(Json.text(signal.path("signalAttributes"), "@type"));
     }
 
-    /** Notifies the alert in {@code entry}. Returns false when nothing was sent (logged). */
-    public boolean notify(JsonNode entry) {
+    /**
+     * Notifies the alert in {@code signal}, the {@code message} of a {@code sygnal/signal/emit}.
+     * Returns false when nothing was sent (logged).
+     */
+    public boolean notify(JsonNode signal) {
         try {
-            JsonNode alert = entry.path("performanceAttributes");
+            JsonNode alert = signal.path("signalAttributes");
             JsonNode resource = alert.path("resource");
             String patientId = Json.text(alert, "patientId");
             if (patientId.isBlank()) {
-                LOG.warn("CCE alert {} has no patientId — not notified", deliveryId(entry, resource));
+                LOG.warn("CCE alert {} has no patientId — not notified", deliveryId(signal, resource));
                 return false;
             }
 
             List<String> to = recipients.resolveForReferral(resource);
             if (to.isEmpty()) {
-                LOG.info("No notification recipients for CCE alert {}", deliveryId(entry, resource));
+                LOG.info("No notification recipients for CCE alert {}", deliveryId(signal, resource));
                 return false;
             }
 
@@ -87,7 +90,7 @@ public class CareAlertNotifier {
                             body(alert, resource, patientId, patientUuid != null),
                             patientUuid == null ? null : "/openmrs/spa/patient/" + patientUuid + "/chart"),
                     to,
-                    "CceCareAlert:" + deliveryId(entry, resource));
+                    "CceCareAlert:" + deliveryId(signal, resource));
             return true;
         } catch (RuntimeException e) {
             LOG.warn("CCE alert could not be notified: {}", e.toString());
@@ -108,16 +111,17 @@ public class CareAlertNotifier {
         return text.length() > MAX_TITLE ? text.substring(0, MAX_TITLE - 1) + "…" : text;
     }
 
-    /** "Patient national-id 0123123123133 · Step status: overdue · Step: ecg-order" */
+    /** "Patient national-id 0123123123133 · Step status: not-started · SLA status: overdue · Step: ecg-order" */
     static String body(JsonNode alert, JsonNode resource, String patientId, boolean knownInOpenMrs) {
         StringJoiner body = new StringJoiner(" · ");
         body.add("Patient national-id " + patientId + (knownInOpenMrs ? "" : " (not registered in OpenMRS)"));
         String status = Json.text(alert, "stepStatus");
-        if (status.isBlank()) {
-            status = Json.text(alert, "stepState");
-        }
         if (!status.isBlank()) {
             body.add("Step status: " + status.toLowerCase(Locale.ROOT));
+        }
+        String sla = Json.text(alert, "slaStatus");
+        if (!sla.isBlank()) {
+            body.add("SLA status: " + sla.toLowerCase(Locale.ROOT));
         }
         String step = extension(resource, PROTOCOL_STEP_EXTENSION);
         if (!step.isBlank()) {
@@ -135,14 +139,17 @@ public class CareAlertNotifier {
         };
     }
 
-    /** The intelligence delivery id: the resource identifier, else the performance id. */
-    static String deliveryId(JsonNode entry, JsonNode resource) {
+    /**
+     * The intelligence delivery id: the resource identifier, else the signal id ({@code message.id},
+     * which CCE sets to the delivery id, as it does {@code context.messageId}).
+     */
+    static String deliveryId(JsonNode signal, JsonNode resource) {
         for (JsonNode id : resource.path("identifier")) {
             if (DELIVERY_ID_SYSTEM.equals(Json.text(id, "system")) && !Json.text(id, "value").isBlank()) {
                 return Json.text(id, "value");
             }
         }
-        return Json.text(entry, "id");
+        return Json.text(signal, "id");
     }
 
     private static String extension(JsonNode resource, String urlSuffix) {

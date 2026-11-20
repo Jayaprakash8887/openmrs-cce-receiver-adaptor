@@ -43,6 +43,21 @@ With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the adaptor gets two more entry poin
 - The Beckn paths are under `/beckn/**`, outside the bearer-token filter on `/api/**` (§9.3).
 - The existing `/api/v1/openmrs/fhir` endpoint is unchanged.
 
+### 2.2 Sygnal Entry (CCE care alerts)
+
+> **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
+
+```
+  cce-beckn-service ══ sygnal/signal/emit ══► onix-openmrs (/sygnal/receiver/) ── POST /sygnal/signal/emit ──► Ack / Nack
+                                                                                          │
+                                                                    (after the Ack) ──────┴──► OpenMRS notification (/alert)
+```
+
+- A CCE care alert arrives as a Sygnal `sygnal/signal/emit` (a `sygnal:Signal` with a `cce:CceCareAlert` box), no longer as a Beckn `on_status`.
+- The adaptor checks the action, `receiverId` (its own id), `senderId` (CCE's id) and the types, and answers at once: 200 `Ack`, or a `Nack` with a canonical Beckn error code (400 for the sender's error, 5xx for "send again later"). No callbacks.
+- On its own thread pool it raises an OpenMRS notification, de-duplicated by the intelligence delivery id.
+- The path is under `/sygnal/**`, outside the bearer-token filter on `/api/**` (§9.3).
+
 ---
 
 ## 3. Component Architecture
@@ -859,7 +874,7 @@ Inbound request arrives
   └── Missing header → 401 Unauthorized
 ```
 
-> **Beckn paths.** The filter only checks paths that start with `/api/`, and `SecurityConfig` also permits `/beckn/**` explicitly. The Beckn endpoints live under `/beckn/**` on purpose: onix forwards the Beckn `Authorization: Signature …` header, which would fail this check with 401. On `/beckn/**` the Beckn signature is checked by `openmrs-onix` instead. See [beckn-integration.md §6](beckn-integration.md#6-security-why-beckn).
+> **Beckn paths.** The filter only checks paths that start with `/api/`, and `SecurityConfig` also permits `/beckn/**` explicitly. The Beckn endpoints live under `/beckn/**` on purpose: onix forwards the Beckn `Authorization: Signature …` header, which would fail this check with 401. On `/beckn/**` the Beckn signature is checked by `openmrs-onix` instead. See [beckn-integration.md §6](beckn-integration.md#6-security-why-beckn). The Sygnal endpoint for CCE care alerts is under `/sygnal/**` for the same reason and is permitted the same way ([sygnal-integration.md §5](sygnal-integration.md#5-security-why-sygnal)).
 
 ### 9.4 Outbound Authentication (Adaptor → OpenMRS)
 

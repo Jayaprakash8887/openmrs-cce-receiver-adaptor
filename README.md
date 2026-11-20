@@ -167,11 +167,16 @@ Detailed documentation is available in the [`docs/`](docs/) directory:
 - [Operations Runbook](docs/operations-runbook.md)
 - [SPICE-OpenMRS Referral Use Case](docs/spice-openmrs-referral-use-case.md)
 - [Referral API Walkthrough](docs/referral-use-case-api-walkthrough.md)
-- [Beckn Integration](docs/beckn-integration.md)
+- [Beckn Integration](docs/beckn-integration.md) (Spice referrals)
+- [Sygnal Integration](docs/sygnal-integration.md) (CCE care alerts)
 
 ### Beckn
 
 Built for the demo, and on by default on the `demo-beckn` branch (`OPENMRS_RECEIVER_BECKN_ENABLED=true`; set `false` to switch it off): the adaptor gets two Beckn endpoints, `POST /beckn/bpp-webhook/{action}` (referrals from Spice, via `openmrs-onix`'s `onix-bpp`: `update` with FHIR resources, or the health-referral flow `select` / `init` / `confirm` / `status`) and `POST /beckn/bap-webhook/{action}` (callbacks, logged only). They sit outside `/api/**` so the bearer-token filter does not reject the Beckn signature header. They answer in the same `Ack` / `Nack` body as `cce-beckn-service`. The existing `/api/v1/openmrs/fhir` endpoint is unchanged. See [docs/beckn-integration.md](docs/beckn-integration.md).
+
+### Sygnal (CCE care alerts)
+
+CCE (`cce-beckn-service`) sends its care alerts as Sygnal `sygnal/signal/emit`, through `onix-openmrs`, to `POST /sygnal/signal/emit` (same switch, `OPENMRS_RECEIVER_BECKN_ENABLED`). The adaptor checks the sender (`OPENMRS_RECEIVER_BECKN_CCE_ID`, default `bpp.cce.nextsteps.mdtlabs.org`) and receiver (`OPENMRS_RECEIVER_BECKN_SELF_ID`, default `bap.openmrs.nextsteps.mdtlabs.org`), answers `Ack` / `Nack` at once and raises an OpenMRS notification afterwards. CCE alerts no longer come as a Beckn `on_status`; the Spice referral flows above are unchanged. See [docs/sygnal-integration.md](docs/sygnal-integration.md).
 
 ## Project Structure
 
@@ -188,7 +193,9 @@ src/main/java/org/openphc/cce/receiver/
 │   ├── RetryConfig.java               # Spring Retry configuration
 │   └── FhirConfig.java               # HAPI FHIR context (inbound parsing)
 ├── controller/
-│   └── InboundResourceController.java # POST /api/v1/openmrs/fhir
+│   ├── InboundResourceController.java # POST /api/v1/openmrs/fhir
+│   ├── BecknWebhookController.java    # POST /beckn/{bpp,bap}-webhook/{action} (Spice referrals)
+│   └── SygnalController.java          # POST /sygnal/signal/emit (CCE care alerts)
 ├── service/
 │   ├── InboundProcessingService.java  # Orchestrator
 │   ├── BundleSplitter.java            # Bundle decomposition

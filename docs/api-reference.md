@@ -228,6 +228,41 @@ Called by `onix-bap`. Callbacks for messages the emitter sent.
 
 ---
 
+## Sygnal Endpoint
+
+> **Status:** Built (demo), on by default on this branch. Full design, samples and settings: [sygnal-integration.md](sygnal-integration.md).
+
+### POST /sygnal/signal/emit
+
+A CCE care alert, sent by `cce-beckn-service` as a Sygnal `sygnal/signal/emit` and forwarded by `onix-openmrs` (which has already checked the signature and the schema). Present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true`; with it off it answers 404. No bearer token is checked: the path is outside the `/api/**` filter. CCE care alerts no longer arrive as `on_status` on `/beckn/bap-webhook`.
+
+The body is a full Sygnal message: `context` with `action` `sygnal/signal/emit`, `senderId` = `receiver.beckn.cce.id`, `receiverId` = `receiver.beckn.self.id`; `message` a `sygnal:Signal` whose `signalAttributes` is a `cce:CceCareAlert` box (`patientId`, `severity`, `stepStatus`, optional `slaStatus`, `fhirVersion`, `resource` = FHIR `CommunicationRequest` or `Task`).
+
+The answer is synchronous (Sygnal has no callbacks) and keeps the request's `context.messageId`:
+
+```json
+{ "message": { "status": "ACK", "messageId": "b2c3d4e5-0001-4000-b000-000000000001" } }
+```
+
+```json
+{ "message": { "status": "NACK", "messageId": "b2c3d4e5-0001-4000-b000-000000000001",
+  "error": { "code": "CTX_INVALID_FIELD", "message": "context.senderId is 'x', but care alerts are taken only from 'bpp.cce.nextsteps.mdtlabs.org'" } } }
+```
+
+| HTTP | Code | When |
+|---|---|---|
+| 200 | — (`ACK`) | Accepted. The OpenMRS notification is raised afterwards; a repeat (same delivery id) is acked and not notified twice |
+| 400 | `SCH_INVALID_JSON` | The body is not a JSON object |
+| 400 | `CTX_MISSING_FIELD` | `context`, `action`, `senderId`, `receiverId` or `messageId` missing |
+| 400 | `CTX_ACTION_MISMATCH` | `context.action` is not `sygnal/signal/emit` |
+| 400 | `CTX_INVALID_FIELD` | `receiverId` is not OpenMRS's id, or `senderId` is not CCE's |
+| 400 | `SCH_TYPE_NOT_SUPPORTED` | `message.@type` is not `sygnal:Signal`, or `signalAttributes.@type` is not `cce:CceCareAlert` |
+| 400 | `SCH_REQUIRED_FIELD_MISSING` | `message`, `message.id`, `patientId` or `resource` missing |
+| 503 | `NET_INTERNAL_ERROR` | The notification queue is full. Send again later |
+| 500 | `NET_INTERNAL_ERROR` | Unexpected error. Send again later |
+
+---
+
 ## Actuator Endpoints
 
 | Method | Endpoint | Purpose |
@@ -252,7 +287,7 @@ Called by `onix-bap`. Callbacks for messages the emitter sent.
 | `cce.receiver.fhir.latency` | Timer | `resourceType`, `method` | FHIR outbound call latency |
 | `cce.receiver.transform.errors` | Counter | `resourceType` | Transformation failures |
 
-Beckn metrics (prefix `openmrs_beckn_`): `messages_received_total`, `callback_status_total`, `actions_unsupported_total`, `peer_unknown_total`, `on_update_sent_total`. Labels and meaning are in [beckn-integration.md §9.1](beckn-integration.md#91-metrics).
+Beckn metrics (prefix `openmrs_beckn_`): `messages_received_total`, `callback_status_total`, `actions_unsupported_total`, `peer_unknown_total`, `on_update_sent_total`, and for CCE care alerts on the Sygnal endpoint `care_alerts_total` ([sygnal-integration.md §8.1](sygnal-integration.md#81-metrics)). Labels and meaning are in [beckn-integration.md §9.1](beckn-integration.md#91-metrics).
 
 ---
 

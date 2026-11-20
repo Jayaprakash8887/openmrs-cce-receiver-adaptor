@@ -187,6 +187,29 @@ Do not expose `/beckn/**` through a public proxy. Only `openmrs-onix` should rea
 
 ---
 
+## Sygnal (CCE care alerts)
+
+> **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
+
+CCE sends care alerts as Sygnal `sygnal/signal/emit`. `onix-openmrs` receives them on its `/sygnal/receiver/` module, checks the signature and the schema, and forwards them to `http://openmrs-cce-receiver-adaptor:8080`; onix appends the action, so the adaptor gets `POST /sygnal/signal/emit`. The Spice Beckn routing above is unchanged.
+
+**Environment.** The defaults are the demo network's ids; set them only when they differ:
+
+```yaml
+  openmrs-cce-receiver-adaptor:
+    environment:
+      OPENMRS_RECEIVER_BECKN_SELF_ID: bap.openmrs.nextsteps.mdtlabs.org
+      OPENMRS_RECEIVER_BECKN_CCE_ID: bpp.cce.nextsteps.mdtlabs.org
+```
+
+| Source | Destination | Port | Purpose |
+|---|---|---|---|
+| `onix-openmrs` (`/sygnal/receiver/`) | Receiver Adaptor | 8080 | Care alerts (`/sygnal/signal/emit`) |
+
+The adaptor answers before it raises the notification, so onix's default wait is enough. Do not expose `/sygnal/**` of the adaptor through a public proxy; the public entry is onix's `/sygnal/receiver/`. `cce-beckn-service` must have OpenMRS's public onix receiver base (`https://<host>/sygnal/receiver`) as its `receiverUri`.
+
+---
+
 ## Startup Sequence
 
 The adaptor performs these steps on startup:

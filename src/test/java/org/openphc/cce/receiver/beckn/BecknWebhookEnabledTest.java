@@ -35,6 +35,7 @@ import static com.github.tomakehurst.wiremock.core.WireMockConfiguration.options
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.after;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
@@ -405,31 +406,21 @@ class BecknWebhookEnabledTest {
     }
 
     @Test
-    void a_cce_care_alert_on_status_is_acked_and_notified() throws Exception {
+    void a_cce_care_alert_sent_as_on_status_is_only_logged() throws Exception {
+        // CCE care alerts arrive as Sygnal sygnal/signal/emit now (SignalEmitEndpointTest). An old-style
+        // on_status with a cce:CceCareAlert entry is a plain callback: logged and acked, not notified.
         String alert = """
                 {"context":{"version":"2.0.0","action":"on_status","bapId":"bap.openmrs.example.org",
                   "bppId":"bpp.cce.example.org","transactionId":"%s","messageId":"%s"},
                  "message":{"contract":{"status":{"code":"ACTIVE"},"commitments":[{"id":"c"}],
-                   "performance":[%s]}}}""".formatted(TRANSACTION_ID, MESSAGE_ID, CareAlertNotifierTest.ALERT_ENTRY);
-        when(careAlerts.notify(any())).thenReturn(true);
+                   "performance":[{"id":"9f2c1d4e-0000-4000-8000-000000000001","status":{"code":"OVERDUE"},
+                     "performanceAttributes":{"@type":"cce:CceCareAlert","patientId":"0123123123133",
+                       "severity":"HIGH","stepStatus":"overdue","resource":{"resourceType":"CommunicationRequest"}}}]}}}"""
+                .formatted(TRANSACTION_ID, MESSAGE_ID);
 
         bap("on_status", alert).andExpect(status().isOk())
                 .andExpect(jsonPath("$.message.status").value("ACK"));
-
-        long until = System.currentTimeMillis() + 3000;
-        while (System.currentTimeMillis() < until && count("openmrs.beckn.care.alerts", "result", "notified") < 1) {
-            Thread.sleep(20);
-        }
-        ArgumentCaptor<JsonNode> entry = ArgumentCaptor.forClass(JsonNode.class);
-        verify(careAlerts).notify(entry.capture());
-        assertThat(entry.getValue().at("/performanceAttributes/patientId").asText()).isEqualTo("0123123123133");
-        assertThat(count("openmrs.beckn.care.alerts", "result", "notified")).isGreaterThanOrEqualTo(1);
-    }
-
-    @Test
-    void an_on_status_without_a_care_alert_is_not_notified() throws Exception {
-        bap("on_status", callback("on_status", "COMPLETED")).andExpect(status().isOk());
-        verify(careAlerts, never()).notify(any());
+        verify(careAlerts, after(200).never()).notify(any());
     }
 
     @Test

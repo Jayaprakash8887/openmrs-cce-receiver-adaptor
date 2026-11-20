@@ -35,12 +35,12 @@ class HealthReferralMapperTest {
 
     @Test
     void health_id_types_map_systems_ignoring_case_and_default_to_the_system() {
-        BecknProperties props = new BecknProperties(true, null, null, null, "ABHA=national-id; hfr = hfr-id");
+        BecknProperties props = new BecknProperties(true, null, null, null, "ABHA=national-id; hfr = hfr-id", null);
         assertThat(props.identifierTypeFor("ABHA")).isEqualTo("national-id");
         assertThat(props.identifierTypeFor("abha")).isEqualTo("national-id");
         assertThat(props.identifierTypeFor("HFR")).isEqualTo("hfr-id");
         assertThat(props.identifierTypeFor("NHID")).isEqualTo("NHID");
-        assertThat(new BecknProperties(true, null, null, null, null).identifierTypeFor("ABHA")).isEqualTo("ABHA");
+        assertThat(new BecknProperties(true, null, null, null, null, null).identifierTypeFor("ABHA")).isEqualTo("ABHA");
     }
 
     @Test

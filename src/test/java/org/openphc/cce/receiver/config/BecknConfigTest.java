@@ -13,6 +13,8 @@ class BecknConfigTest {
 
     private static final String[] COMPLETE = {
             "receiver.beckn.enabled=true",
+            "receiver.beckn.self.id=bap.openmrs.nextsteps.mdtlabs.org",
+            "receiver.beckn.cce.id=bpp.cce.nextsteps.mdtlabs.org",
             "receiver.beckn.self.bpp-id=bpp.openmrs.example.org",
             "receiver.beckn.self.bpp-uri=https://openmrs.example.org/bpp/receiver",
             "receiver.beckn.spice.bap-id=bap.spice.example.org",
@@ -42,6 +44,10 @@ class BecknConfigTest {
             BecknProperties p = ctx.getBean(BecknProperties.class);
             assertThat(p.onix().bppCallerUrl()).isEqualTo("http://onix-bpp:8082/bpp/caller");
             assertThat(p.spice().referralsIn().commitmentFile().exists()).isTrue();
+            assertThat(p.self().id()).isEqualTo("bap.openmrs.nextsteps.mdtlabs.org");
+            assertThat(p.cce().id()).isEqualTo("bpp.cce.nextsteps.mdtlabs.org");
+            assertThat(ctx).hasBean(BecknConfig.CALLBACK_EXECUTOR);
+            assertThat(ctx).hasBean(BecknConfig.CARE_ALERT_EXECUTOR);
         });
     }
 
@@ -52,6 +58,8 @@ class BecknConfigTest {
             assertThat(ctx.getStartupFailure()).rootCause()
                     .hasMessageContaining("receiver.beckn.self.bpp-uri")
                     .hasMessageContaining("receiver.beckn.spice.bap-id")
+                    .hasMessageContaining("receiver.beckn.self.id")
+                    .hasMessageContaining("receiver.beckn.cce.id")
                     .hasMessageNotContaining("contract-id")
                     .hasMessageNotContaining("receiver.beckn.self.bpp-id,");
         });

@@ -61,7 +61,7 @@ public class HealthReferralService {
                                  InboundProcessingService processingService, BecknAnswerMapper answerMapper,
                                  OpenMrsRestClient openMrs, BecknMessages messages, OnixClient onix,
                                  BecknMetrics metrics,
-                                 @Qualifier(BecknConfig.ON_UPDATE_EXECUTOR) Executor callbackExecutor) {
+                                 @Qualifier(BecknConfig.CALLBACK_EXECUTOR) Executor callbackExecutor) {
         this.referralMapper = referralMapper;
         this.index = index;
         this.processingService = processingService;

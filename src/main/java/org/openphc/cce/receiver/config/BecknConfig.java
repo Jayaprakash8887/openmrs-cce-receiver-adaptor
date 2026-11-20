@@ -14,8 +14,9 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.ThreadPoolExecutor;
 
 /**
- * Beans of the Beckn endpoints. Loaded only when {@code receiver.beckn.enabled=true}: with it off,
- * nothing Beckn exists and {@code /beckn/**} answers 404.
+ * Beans of the Beckn endpoints (Spice referrals) and of the Sygnal endpoint (CCE care alerts). Loaded
+ * only when {@code receiver.beckn.enabled=true}: with it off, nothing Beckn or Sygnal exists and
+ * {@code /beckn/**} and {@code /sygnal/**} answer 404.
  */
 @Configuration
 @ConditionalOnProperty(prefix = "receiver.beckn", name = "enabled", havingValue = "true", matchIfMissing = true)
@@ -23,7 +24,10 @@ import java.util.concurrent.ThreadPoolExecutor;
 public class BecknConfig {
 
     public static final String ONIX_CLIENT = "becknOnixRestClient";
-    public static final String ON_UPDATE_EXECUTOR = "becknOnUpdateExecutor";
+    /** Sends the Beckn callbacks to Spice through {@code onix-bpp}. */
+    public static final String CALLBACK_EXECUTOR = "becknCallbackExecutor";
+    /** Raises the OpenMRS notification of a CCE care alert ({@code sygnal/signal/emit}). */
+    public static final String CARE_ALERT_EXECUTOR = "careAlertExecutor";
 
     private static final Duration ONIX_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration ONIX_READ_TIMEOUT = Duration.ofSeconds(15);
@@ -55,13 +59,32 @@ public class BecknConfig {
      * Sends the callbacks ({@code on_update}, {@code on_select}, {@code on_init}, {@code on_confirm},
      * {@code on_status}) after the Ack. A full queue drops one: Spice already has its Ack.
      */
-    @Bean(ON_UPDATE_EXECUTOR)
-    public Executor becknOnUpdateExecutor() {
+    @Bean(CALLBACK_EXECUTOR)
+    public Executor becknCallbackExecutor() {
         ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
         ex.setCorePoolSize(2);
         ex.setMaxPoolSize(4);
         ex.setQueueCapacity(200);
         ex.setThreadNamePrefix("beckn-callback-");
+        ex.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
+        ex.setWaitForTasksToCompleteOnShutdown(true);
+        ex.setAwaitTerminationSeconds(10);
+        return ex;
+    }
+
+    /**
+     * Raises the OpenMRS notification of a CCE care alert after the {@code Ack} of its
+     * {@code sygnal/signal/emit}. A full queue refuses the task, and the signal is answered with a 503
+     * {@code Nack}. Separate from the callback pool, so that slow OpenMRS notifications and slow Spice
+     * callbacks do not hold each other up.
+     */
+    @Bean(CARE_ALERT_EXECUTOR)
+    public Executor careAlertExecutor() {
+        ThreadPoolTaskExecutor ex = new ThreadPoolTaskExecutor();
+        ex.setCorePoolSize(2);
+        ex.setMaxPoolSize(4);
+        ex.setQueueCapacity(200);
+        ex.setThreadNamePrefix("care-alert-");
         ex.setRejectedExecutionHandler(new ThreadPoolExecutor.AbortPolicy());
         ex.setWaitForTasksToCompleteOnShutdown(true);
         ex.setAwaitTerminationSeconds(10);

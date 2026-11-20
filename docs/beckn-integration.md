@@ -3,6 +3,8 @@
 **Status:** Built for the demo. On by default on the `demo-beckn` branch (`OPENMRS_RECEIVER_BECKN_ENABLED=true`); set `OPENMRS_RECEIVER_BECKN_ENABLED=false` to switch it off. Where the code differs from the first proposal, this page has been updated; §11 lists those points.
 **Design:** `openmrs-beckn-service/docs/design-openmrs-beckn-integration.md` ("the design"). This page covers the receiver's part only.
 
+> **CCE legs moved to Sygnal.** CCE care alerts no longer come as a Beckn `on_status`: they arrive as Sygnal `sygnal/signal/emit` at `POST /sygnal/signal/emit` — see [sygnal-integration.md](sygnal-integration.md). OpenMRS → HIE → CCE events travel as Sygnal `sygnal/event/report`, so no `on_update` comes back from the HIE any more. The Spice ↔ OpenMRS referral flows on this page are unchanged, standard Beckn.
+
 The receiver gets two Beckn endpoints. They are an extra door into OpenMRS, not a replacement. The existing `POST /api/v1/openmrs/fhir` endpoint is unchanged, and with `OPENMRS_RECEIVER_BECKN_ENABLED=false` the receiver behaves exactly as today. On the `demo-beckn` branch Beckn is on by default.
 
 ---
@@ -36,7 +38,7 @@ The receiver takes part in two of them:
 
 ### 1.1 Flow diagrams
 
-The diagrams below are the same as in the central design's flow diagrams. Mermaid notation. CCE care alerts (§5.1) are not drawn.
+The diagrams below are the same as in the central design's flow diagrams. Mermaid notation. CCE care alerts (Sygnal, [sygnal-integration.md](sygnal-integration.md)) are not drawn.
 
 **All four flows**
 
@@ -243,7 +245,6 @@ Both endpoints answer in the same `Ack` / `Nack` body as `cce-beckn-service` (§
 |---|---|---|---|
 | `on_update` | OpenHIM's adaptor (after it accepted an OpenMRS event) or Spice (after it accepted a referral out) | Logs the performance status: `ACCEPTED` or `DUPLICATE` | `Ack` |
 | `on_status` | Spice | Logs the outcome of a referral OpenMRS sent out (`COMPLETED` or `DECLINED`). Nothing is written into OpenMRS yet (design Q5) | `Ack` |
-| `on_status` | CCE (`cce-beckn-service`) | A care alert (`cce:CceCareAlert`): raises an OpenMRS notification after the `Ack` (§5.1) | `Ack` |
 | any other | — | Logs it | `Nack` (400), `NOT_SUPPORTED` |
 
 A body that is not JSON, or a `context.action` that is not the action in the path, gets `Nack` (400) `BAD_REQUEST`. The contract id is not checked on callbacks.
@@ -260,7 +261,7 @@ The `Ack` to the HIE's `update` already means CCE accepted the event, because ev
 | `resource` | Yes | The FHIR resource |
 | `sourceEventId` | No | `{ResourceType}/{id}` |
 
-The receiver builds no CloudEvents. A `CceCareAlert` box arrives in CCE's alert `on_status` and becomes an OpenMRS notification (§5.1).
+The receiver builds no CloudEvents. CCE care alerts (`CceCareAlert`) arrive over Sygnal, not here (§5.1).
 
 ### 3.4 `Ack` and `Nack` bodies
 
@@ -532,34 +533,14 @@ The contract echoed is the confirmed one when the receiver still holds it, other
 | `on_update` from OpenHIM's adaptor | The emitter sent an event to the HIE (design §5.2) | `ACCEPTED` or `DUPLICATE` |
 | `on_update` from Spice | The emitter sent a referral out (design §5.5 step 5) | `ACCEPTED` or `DUPLICATE` |
 | `on_status` from Spice | Spice completed or declined a referral out (design §5.5 step 6) | `COMPLETED` or `DECLINED`, with the `ServiceRequest` id |
-| `on_status` from CCE (`cce-beckn-service`) | A care alert raised by a protocol's intelligence action (§5.1) | `ALERT`, with the severity and step status |
 
-The receiver answers `Ack` to each. It writes nothing into OpenMRS, except the notification of a care alert (§5.1). The referral order of a referral out stays open in OpenMRS (design Q5).
+The receiver answers `Ack` to each. It writes nothing into OpenMRS. The referral order of a referral out stays open in OpenMRS (design Q5).
 
 An `on_update` may arrive before the emitter has its `Ack`, or never arrive. The receiver logs it either way. Nothing in OpenMRS or the emitter waits for it.
 
-### 5.1 CCE care alerts
+### 5.1 CCE care alerts (moved to Sygnal)
 
-When a protocol step's intelligence action fires for the `OPENMRS` destination (for example "ECG not ordered within 10 minutes"), the CCE intelligence service builds a FHIR `CommunicationRequest` (or `Task`) and `cce-beckn-service` sends it to OpenMRS's BAP as an `on_status`. Its performance entry is a `cce:CceCareAlert` box:
-
-| Field | Use |
-|---|---|
-| `patientId` | The patient's national id (the id CCE uses) |
-| `severity` | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
-| `stepStatus` (older senders: `stepState`) | The step's status, e.g. `overdue`, `missed`, `completed` |
-| `resource` | The FHIR `CommunicationRequest` / `Task`: the alert text in `payload[0].contentString` (`Task.description`), the delivery id in `identifier`, the protocol step in the `cce-protocol-step-id` extension |
-
-The receiver answers `Ack` at once and then, on another thread, raises an OpenMRS notification through the same `/alert` endpoint and to the same recipients as "New referral received" (`openmrs.notification.*`):
-
-| Notification | From the alert |
-|---|---|
-| `type` | `CCE_ALERT` |
-| `severity` | `LOW` → `INFO`, `MEDIUM` / `HIGH` → `WARNING`, `CRITICAL` → `CRITICAL` |
-| `title` | The alert text (cut to 120 characters) |
-| `body` | `Patient national-id <patientId> · Step status: <status> · Step: <protocol step>`; "(not registered in OpenMRS)" after the id when no OpenMRS patient has it |
-| `link` | The patient's chart, when a patient has that national id |
-
-The same alert (same delivery id) is not notified twice. A failure to notify is logged and counted (`openmrs_beckn_care_alerts_total{result}`) but never changes the `Ack`: CCE does not resend alerts.
+CCE care alerts used to arrive here as an `on_status` with a `cce:CceCareAlert` performance entry. They now arrive as Sygnal `sygnal/signal/emit` at `POST /sygnal/signal/emit` and are described in [sygnal-integration.md](sygnal-integration.md). An `on_status` that still carries a `cce:CceCareAlert` is treated like any other callback: logged and answered `Ack`, but no notification is raised.
 
 ---
 
@@ -619,6 +600,8 @@ receiver:
 | `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update`, and in a health-referral callback whose request has none (the draft of design Appendix B.1). A JSON object with an `id`, read once at start |
 | `receiver.beckn.health-id-types` | `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` | empty | Health referrals (§4A): the OpenMRS identifier type for each patient health id system, as `SYSTEM=type` pairs separated by `;`, systems matched ignoring case. Example: `ABHA=national-id`. A system without a pair is used as the type name, and OpenMRS creates the type the first time |
 
+The same `receiver.beckn` block also holds the two Sygnal ids for CCE care alerts, `receiver.beckn.self.id` (`OPENMRS_RECEIVER_BECKN_SELF_ID`, default `bap.openmrs.nextsteps.mdtlabs.org`) and `receiver.beckn.cce.id` (`OPENMRS_RECEIVER_BECKN_CCE_ID`, default `bpp.cce.nextsteps.mdtlabs.org`); see [sygnal-integration.md §6](sygnal-integration.md#6-settings). They are required as well when the endpoints are on.
+
 There are no "referrals in" contract or transaction id settings: the `on_update` echoes the request's. `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only.
 
 ---
@@ -665,7 +648,7 @@ Classes under `org.openphc.cce.receiver`. Every Beckn bean is created only when 
 | `OnixClient` | `beckn` | Posts `on_update` to `onix-bpp`'s caller |
 | `CommitmentHolder` | `beckn` | Reads the commitment file once |
 | `BecknMetrics`, `BecknMessageLog` | `beckn` | §9.1, §9.2 |
-| `BecknProperties`, `BecknConfig` | `config` | Bind and check `receiver.beckn.*`; the onix HTTP client and the `on_update` thread pool |
+| `BecknProperties`, `BecknConfig` | `config` | Bind and check `receiver.beckn.*`; the onix HTTP client and the `becknCallbackExecutor` thread pool for the callbacks to Spice (the Sygnal endpoint has its own `careAlertExecutor`) |
 | `ProcessingStatusResolver` | `service` | The write path's status rule (202 / 207 / 422 / 503, and which failures are transient), moved out of `InboundResourceController` |
 
 Changed:
@@ -690,7 +673,7 @@ Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label va
 | `openmrs_beckn_peer_unknown_total` | Counter | `peer` | A referral (`update`, `select`, ...) from a `bapId` that is not `receiver.beckn.spice.bap-id` |
 | `openmrs_beckn_on_update_sent_total` | Counter | `result` (`success`, `failed`, `dropped`) | `on_update` `ACCEPTED` sent to Spice |
 | `openmrs_beckn_callback_sent_total` | Counter | `action` (`on_select`, `on_init`, `on_confirm`, `on_status`), `result` (`success`, `failed`, `dropped`) | Health-referral callbacks sent to Spice (§4A) |
-| `openmrs_beckn_care_alerts_total` | Counter | `result` (`notified`, `not-notified`, `dropped`) | CCE care alerts received in `on_status` and whether an OpenMRS notification was raised (§5.1) |
+| `openmrs_beckn_care_alerts_total` | Counter | `result` (`notified`, `not-notified`, `dropped`) | CCE care alerts received on the Sygnal endpoint ([sygnal-integration.md §8.1](sygnal-integration.md#81-metrics)) |
 | `openmrs_beckn_status_unknown_total` | Counter | — | `status` for a referral OpenMRS has no order for; no `on_status` sent |
 
 ### 9.2 Logging
@@ -723,7 +706,7 @@ Never logged: message bodies, the FHIR resource, the patient id. The referral id
 | Topic | In the demo | Open question |
 |---|---|---|
 | Outcome of a referral out | `on_status` from Spice is logged only. The OpenMRS order stays open | Q5: later, the receiver closes the order |
-| CCE alerts to OpenMRS | Sent by `cce-beckn-service` directly to OpenMRS's BAP as `on_status` (not through the HIE); each becomes an OpenMRS notification (§5.1) | Acting on an alert (opening a task) is not built: the notification only informs |
+| CCE alerts to OpenMRS | Sent by `cce-beckn-service` as Sygnal `sygnal/signal/emit` to `POST /sygnal/signal/emit` ([sygnal-integration.md](sygnal-integration.md)); each becomes an OpenMRS notification | Acting on an alert (opening a task) is not built: the notification only informs |
 | Allowed systems | No allow-list. Any system in the network registry that `onix-bpp` accepts can send a referral | Needed for a live system |
 | Peers | One HMIS peer (Spice). Every referral in is assumed to come from it | More than one peer needs more settings |
 | `confirm` | Accepted in the health-referral flow (§4A): it writes the referral. Not part of the `update` flow | — |

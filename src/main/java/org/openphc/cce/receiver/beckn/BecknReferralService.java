@@ -44,7 +44,7 @@ public class BecknReferralService {
     public BecknReferralService(BecknUnwrapper unwrapper, InboundProcessingService processingService,
                                 BecknAnswerMapper answerMapper, BecknMessages messages, OnixClient onix,
                                 BecknMetrics metrics,
-                                @Qualifier(BecknConfig.ON_UPDATE_EXECUTOR) Executor onUpdateExecutor,
+                                @Qualifier(BecknConfig.CALLBACK_EXECUTOR) Executor onUpdateExecutor,
                                 HealthReferralService healthReferrals) {
         this.unwrapper = unwrapper;
         this.processingService = processingService;

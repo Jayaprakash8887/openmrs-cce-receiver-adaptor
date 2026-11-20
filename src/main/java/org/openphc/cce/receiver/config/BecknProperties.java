@@ -7,7 +7,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Settings for the Beckn endpoints ({@code receiver.beckn.*}). See docs/beckn-integration.md §7.
+ * Settings for the Beckn endpoints (Spice referrals, docs/beckn-integration.md §7) and the Sygnal
+ * endpoint (CCE care alerts, docs/sygnal-integration.md §6), all under {@code receiver.beckn.*}.
  *
  * <p>Bound only when {@code receiver.beckn.enabled=true} (by {@code BecknConfig}). {@link #validate()}
  * then makes the start fail when an id is missing.
@@ -18,12 +19,14 @@ public record BecknProperties(
         Onix onix,
         Self self,
         Spice spice,
-        String healthIdTypes
+        String healthIdTypes,
+        Cce cce
 ) {
 
     public BecknProperties {
         if (onix == null) onix = new Onix(null);
-        if (self == null) self = new Self(null, null, null);
+        if (self == null) self = new Self(null, null, null, null);
+        if (cce == null) cce = new Cce(null);
         if (spice == null) spice = new Spice(null, null, null);
         if (healthIdTypes == null) healthIdTypes = "";
     }
@@ -54,8 +57,16 @@ public record BecknProperties(
         }
     }
 
-    /** OpenMRS as a provider (BPP), as registered in the network registry. */
-    public record Self(String bppId, String bppUri, String networkId) {
+    /**
+     * OpenMRS in the network registry. {@code bppId} / {@code bppUri}: as a Beckn provider (BPP) for
+     * Spice's referrals. {@code id}: its Sygnal subscriber id, which a {@code sygnal/signal/emit} must
+     * carry as {@code context.receiverId}.
+     */
+    public record Self(String id, String bppId, String bppUri, String networkId) {
+    }
+
+    /** CCE: its Sygnal subscriber id, which a {@code sygnal/signal/emit} must carry as {@code context.senderId}. */
+    public record Cce(String id) {
     }
 
     /** The one HMIS peer (Spice). */
@@ -76,6 +87,8 @@ public record BecknProperties(
     public void validate() {
         List<String> missing = new ArrayList<>();
         require(missing, onix.bppCallerUrl(), "receiver.beckn.onix.bpp-caller-url");
+        require(missing, self.id(), "receiver.beckn.self.id");
+        require(missing, cce.id(), "receiver.beckn.cce.id");
         require(missing, self.bppId(), "receiver.beckn.self.bpp-id");
         require(missing, self.bppUri(), "receiver.beckn.self.bpp-uri");
         require(missing, spice.bapId(), "receiver.beckn.spice.bap-id");

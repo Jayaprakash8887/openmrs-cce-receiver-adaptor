@@ -102,6 +102,28 @@ The ids have no defaults. With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the defaul
 
 **Security note.** `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only. The Beckn endpoints are under `/beckn/**` because onix forwards the Beckn `Authorization: Signature …` header; under `/api/**` every Beckn message would get 401 whenever security is on. On `/beckn/**` the Beckn signature is checked by `openmrs-onix`, so keep these paths reachable only inside the OpenMRS network.
 
+### Sygnal (CCE care alerts)
+
+> **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
+
+`POST /sygnal/signal/emit`, where `onix-openmrs` forwards CCE's care alerts (`sygnal/signal/emit`), is switched with the Beckn endpoints by `OPENMRS_RECEIVER_BECKN_ENABLED`. Two more ids in the same `receiver.beckn` block:
+
+| Property | Env Var | Default | Description |
+|----------|---------|---------|-------------|
+| `receiver.beckn.self.id` | `OPENMRS_RECEIVER_BECKN_SELF_ID` | `bap.openmrs.nextsteps.mdtlabs.org` | OpenMRS's Sygnal subscriber id. A signal whose `context.receiverId` differs gets `Nack` (400) `CTX_INVALID_FIELD` |
+| `receiver.beckn.cce.id` | `OPENMRS_RECEIVER_BECKN_CCE_ID` | `bpp.cce.nextsteps.mdtlabs.org` | CCE's subscriber id. A signal whose `context.senderId` differs gets `Nack` (400) `CTX_INVALID_FIELD` |
+
+```yaml
+receiver:
+  beckn:
+    self:
+      id: ${OPENMRS_RECEIVER_BECKN_SELF_ID:bap.openmrs.nextsteps.mdtlabs.org}
+    cce:
+      id: ${OPENMRS_RECEIVER_BECKN_CCE_ID:bpp.cce.nextsteps.mdtlabs.org}
+```
+
+Both are required (non-blank) when the endpoints are on. `/sygnal/**` is outside the bearer-token filter for the same reason as `/beckn/**`. The notification itself uses the `openmrs.notification.*` settings below.
+
 ### Identifier Configuration
 
 | Property | Env Var | Default | Description |

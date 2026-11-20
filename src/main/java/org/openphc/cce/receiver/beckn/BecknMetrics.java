@@ -18,7 +18,8 @@ public class BecknMetrics {
             "discover", "search", "select", "init", "confirm", "status", "track", "update", "cancel",
             "rate", "rating", "support",
             "on_discover", "on_search", "on_select", "on_init", "on_confirm", "on_status", "on_track",
-            "on_update", "on_cancel", "on_rate", "on_rating", "on_support");
+            "on_update", "on_cancel", "on_rate", "on_rating", "on_support",
+            SignalEmitService.ACTION);
 
     private static final Set<String> KNOWN_STATUSES = Set.of("ACCEPTED", "DUPLICATE", "COMPLETED", "DECLINED");
 
@@ -64,7 +65,10 @@ public class BecknMetrics {
         registry.counter("openmrs.beckn.callback.sent", "action", action(action), "result", result).increment();
     }
 
-    /** A CCE care alert received in {@code on_status}. {@code result}: notified, not-notified or dropped. */
+    /**
+     * A CCE care alert accepted on {@code POST /sygnal/signal/emit}. {@code result}: notified,
+     * not-notified or dropped (the queue was full; answered 503).
+     */
     public void careAlert(String result) {
         registry.counter("openmrs.beckn.care.alerts", "result", result).increment();
     }

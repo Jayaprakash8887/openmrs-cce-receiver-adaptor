@@ -60,6 +60,9 @@ class BecknDisabledAndApiRegressionTest {
                 .andExpect(status().isNotFound());
         mvc.perform(post("/beckn/bap-webhook/on_update").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isNotFound());
+        assertThat(context.getBeanNamesForType(SygnalController.class)).isEmpty();
+        mvc.perform(post("/sygnal/signal/emit").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isNotFound());
     }
 
     private ResultActions postFhir() throws Exception {

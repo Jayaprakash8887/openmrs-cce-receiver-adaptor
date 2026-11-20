@@ -45,6 +45,9 @@ public class SecurityConfig {
                     // forwards. onix passes on "Authorization: Signature ...", which the bearer
                     // check would refuse. See docs/beckn-integration.md §6.
                     .requestMatchers("/beckn/**").permitAll()
+                    // Sygnal endpoint (CCE care alerts): the same, checked by onix-openmrs.
+                    // See docs/sygnal-integration.md §5.
+                    .requestMatchers("/sygnal/**").permitAll()
                     .requestMatchers("/api/**").authenticated()
                     .anyRequest().permitAll()
                 );
@@ -72,9 +75,9 @@ public class SecurityConfig {
                 return;
             }
 
-            // Only /api/** carries the bearer token. /beckn/** is named here as well, so that a
-            // later change to the rule below cannot catch the Beckn endpoints by accident.
-            if (path.startsWith("/beckn/") || !path.startsWith("/api/")) {
+            // Only /api/** carries the bearer token. /beckn/** and /sygnal/** are named here as well,
+            // so that a later change to the rule below cannot catch them by accident.
+            if (path.startsWith("/beckn/") || path.startsWith("/sygnal/") || !path.startsWith("/api/")) {
                 filterChain.doFilter(request, response);
                 return;
             }

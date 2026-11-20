@@ -146,6 +146,30 @@ docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
 | Health-referral patient gets a new identifier type named after the system (e.g. `ABHA`) | No `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` pair for it | Set e.g. `ABHA=national-id` if that id should be the national id |
 | Outcome of a referral out not visible in OpenMRS | `on_status` from Spice is logged only | Expected in the demo (design Q5) |
 
+### Sygnal (CCE care alert) Issues
+
+> Full design: [sygnal-integration.md](sygnal-integration.md).
+
+```bash
+# Endpoint is on: an empty object should answer Nack (400) CTX_MISSING_FIELD, not 404
+curl -s -X POST http://openmrs-cce-receiver-adaptor:8080/sygnal/signal/emit \
+  -H 'Content-Type: application/json' -d '{}'
+
+# One log line per signal (WARN for a Nack)
+docker compose logs openmrs-cce-receiver-adaptor | grep 'sygnal direction='
+```
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `404` on `/sygnal/signal/emit` | The endpoints are off | Set `OPENMRS_RECEIVER_BECKN_ENABLED=true` and restart |
+| Every alert gets `Nack` `CTX_INVALID_FIELD` "context.receiverId …" | CCE addresses OpenMRS with another subscriber id | Align `OPENMRS_RECEIVER_BECKN_SELF_ID` with `cce-beckn-service`'s HMIS list and the registry |
+| Every alert gets `Nack` `CTX_INVALID_FIELD` "context.senderId …" | CCE's subscriber id differs from `receiver.beckn.cce.id` | Align `OPENMRS_RECEIVER_BECKN_CCE_ID` with CCE's registered id |
+| `Nack` `CTX_ACTION_MISMATCH` | onix routed another action to this path | Only `sygnal/signal/emit` goes to the adaptor from `/sygnal/receiver/` |
+| `Nack` `SCH_TYPE_NOT_SUPPORTED` | Not a `sygnal:Signal` with a `cce:CceCareAlert` | Check the sender against the CCE Sygnal profile |
+| CCE alerts arrive as `on_status` on `/beckn/bap-webhook` and nothing is notified | CCE still on the old Beckn version | Upgrade `cce-beckn-service`; alerts must come as `sygnal/signal/emit` |
+| `Nack` (503) `NET_INTERNAL_ERROR` "queue is full", `openmrs_beckn_care_alerts_total{result="dropped"}` rises | More alerts than the notification threads can raise (OpenMRS slow) | Check OpenMRS health. CCE may send again |
+| Alert acked but no notification; `openmrs_beckn_care_alerts_total{result="not-notified"}` rises | No recipients, notifications disabled, or OpenMRS `/alert` failed | See the notification rows above (`OPENMRS_NOTIFICATION_*`) |
+
 ---
 
 ## Log Format
@@ -175,6 +199,8 @@ docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
 | `openmrs_beckn_messages_received_total{action="update",result="nack"}` (proposal) | 0 | Any sustained increase |
 | `openmrs_beckn_peer_unknown_total` (proposal) | 0 | Any |
 | `openmrs_beckn_on_update_sent_total{result!="ack"}` (proposal) | 0 | Any |
+| `openmrs_beckn_messages_received_total{action="sygnal/signal/emit",result="nack"}` | 0 | Any sustained increase |
+| `openmrs_beckn_care_alerts_total{result!="notified"}` | 0 or very low | Any sustained increase |
 
 ---
 

@@ -9,7 +9,9 @@ import java.util.StringJoiner;
 
 /**
  * One log line per Beckn message: each one received and each {@code on_update} sent
- * (docs/beckn-integration.md §9.2). Never logs a message body, a FHIR resource or a patient id.
+ * (docs/beckn-integration.md §9.2), and per Sygnal {@code sygnal/signal/emit} received
+ * (docs/sygnal-integration.md §8.2; those lines start with {@code sygnal}). Never logs a message body,
+ * a FHIR resource or a patient id.
  */
 public final class BecknMessageLog {
 
@@ -36,6 +38,7 @@ public final class BecknMessageLog {
     public BecknMessageLog transactionId(String v) { return put("transactionId", v); }
     public BecknMessageLog messageId(String v) { return put("messageId", v); }
     public BecknMessageLog performanceId(String v) { return put("performanceId", v); }
+    public BecknMessageLog signalId(String v) { return put("signalId", v); }
     public BecknMessageLog resourceType(String v) { return put("resourceType", v); }
     public BecknMessageLog referralId(String v) { return put("referralId", v); }
     public BecknMessageLog result(String v) { return put("result", v); }
@@ -52,7 +55,7 @@ public final class BecknMessageLog {
 
     /** Writes the line: WARN for a failure, INFO otherwise. */
     public void write() {
-        StringJoiner line = new StringJoiner(" ", "beckn ", "");
+        StringJoiner line = new StringJoiner(" ", String.valueOf(fields.get("action")).startsWith("sygnal/") ? "sygnal " : "beckn ", "");
         fields.forEach((k, v) -> {
             String c = clean(String.valueOf(v));
             line.add(k + "=" + (c.indexOf(' ') >= 0 ? "\"" + c + "\"" : c));

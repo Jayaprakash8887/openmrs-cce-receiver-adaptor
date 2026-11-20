@@ -18,6 +18,11 @@ public class BecknException extends RuntimeException {
         return new BecknException(HttpStatus.BAD_REQUEST, BecknCodes.BAD_REQUEST, message);
     }
 
+    /** A 400 with the given code: used by the Sygnal endpoint, whose codes come from {@link ErrorCodes}. */
+    public static BecknException badRequest(String code, String message) {
+        return new BecknException(HttpStatus.BAD_REQUEST, code, message);
+    }
+
     public static BecknException notSupported(String action) {
         return new BecknException(HttpStatus.BAD_REQUEST, BecknCodes.NOT_SUPPORTED,
                 "The action '" + BecknMessageLog.clean(action) + "' is not supported");
