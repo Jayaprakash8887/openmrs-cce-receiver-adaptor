@@ -13,20 +13,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-import static org.openphc.cce.receiver.beckn.BecknTestMessages.*;
+import static org.openphc.cce.receiver.beckn.SygnalTestMessages.*;
 
 /** The answers that need a broken executor or notifier. */
 class SignalEmitServiceTest {
 
     private static final ObjectMapper OM = new ObjectMapper();
-    private static final BecknProperties PROPS = new BecknProperties(true,
-            new BecknProperties.Self(SELF_ID), new BecknProperties.Cce(CCE_ID));
+    private static final BecknProperties PROPS = new BecknProperties(true, null,
+            new BecknProperties.Self(SELF_ID, null, null, null), null, null, new BecknProperties.Cce(CCE_ID));
 
     private final SimpleMeterRegistry meters = new SimpleMeterRegistry();
     private final CareAlertNotifier notifier = mock(CareAlertNotifier.class);
 
     private SignalEmitService service(java.util.concurrent.Executor executor) {
-        return new SignalEmitService(OM, new BecknMessages(OM), new BecknMetrics(meters), notifier, PROPS, executor);
+        return new SignalEmitService(OM, new BecknMessages(OM, PROPS, null), new BecknMetrics(meters), notifier, PROPS, executor);
     }
 
     @Test

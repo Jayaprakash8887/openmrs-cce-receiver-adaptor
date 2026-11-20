@@ -5,7 +5,7 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** The Sygnal settings: bound only when enabled, and the start fails when an id is missing. */
+/** The Beckn settings: bound only when enabled, and the start fails when an id is missing. */
 class BecknConfigTest {
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
@@ -14,7 +14,12 @@ class BecknConfigTest {
     private static final String[] COMPLETE = {
             "receiver.beckn.enabled=true",
             "receiver.beckn.self.id=bap.openmrs.nextsteps.mdtlabs.org",
-            "receiver.beckn.cce.id=bpp.cce.nextsteps.mdtlabs.org"
+            "receiver.beckn.cce.id=bpp.cce.nextsteps.mdtlabs.org",
+            "receiver.beckn.self.bpp-id=bpp.openmrs.example.org",
+            "receiver.beckn.self.bpp-uri=https://openmrs.example.org/bpp/receiver",
+            "receiver.beckn.spice.bap-id=bap.spice.example.org",
+            "receiver.beckn.spice.bap-uri=https://spice.example.org/bap/receiver",
+            "receiver.beckn.spice.referrals-in.commitment-file=classpath:beckn/commitment-referral.json"
     };
 
     @Test
@@ -23,14 +28,12 @@ class BecknConfigTest {
             assertThat(ctx).hasNotFailed();
             assertThat(ctx).doesNotHaveBean(BecknConfig.class);
             assertThat(ctx).doesNotHaveBean(BecknProperties.class);
-            assertThat(ctx).doesNotHaveBean(BecknConfig.CARE_ALERT_EXECUTOR);
         });
     }
 
     @Test
     void on_by_default_and_fails_fast_without_ids() {
-        // On unless switched off. The ids' defaults live in application.yml, which this runner does not
-        // read, so a start without them must fail.
+        // demo-beckn: Beckn is on unless switched off, so a start without the ids must fail.
         runner.run(ctx -> assertThat(ctx).hasFailed());
     }
 
@@ -39,20 +42,32 @@ class BecknConfigTest {
         runner.withPropertyValues(COMPLETE).run(ctx -> {
             assertThat(ctx).hasNotFailed();
             BecknProperties p = ctx.getBean(BecknProperties.class);
+            assertThat(p.onix().bppCallerUrl()).isEqualTo("http://onix-bpp:8082/bpp/caller");
+            assertThat(p.spice().referralsIn().commitmentFile().exists()).isTrue();
             assertThat(p.self().id()).isEqualTo("bap.openmrs.nextsteps.mdtlabs.org");
             assertThat(p.cce().id()).isEqualTo("bpp.cce.nextsteps.mdtlabs.org");
+            assertThat(ctx).hasBean(BecknConfig.CALLBACK_EXECUTOR);
             assertThat(ctx).hasBean(BecknConfig.CARE_ALERT_EXECUTOR);
         });
     }
 
     @Test
     void fails_fast_when_ids_are_missing() {
-        runner.withPropertyValues("receiver.beckn.enabled=true", "receiver.beckn.self.id=x",
-                "receiver.beckn.cce.id= ").run(ctx -> {
+        runner.withPropertyValues("receiver.beckn.enabled=true", "receiver.beckn.self.bpp-id=x").run(ctx -> {
             assertThat(ctx).hasFailed();
             assertThat(ctx.getStartupFailure()).rootCause()
+                    .hasMessageContaining("receiver.beckn.self.bpp-uri")
+                    .hasMessageContaining("receiver.beckn.spice.bap-id")
+                    .hasMessageContaining("receiver.beckn.self.id")
                     .hasMessageContaining("receiver.beckn.cce.id")
-                    .hasMessageNotContaining("receiver.beckn.self.id");
+                    .hasMessageNotContaining("contract-id")
+                    .hasMessageNotContaining("receiver.beckn.self.bpp-id,");
         });
+    }
+
+    @Test
+    void trailing_slash_is_removed_from_the_caller_url() {
+        assertThat(BecknConfig.withoutTrailingSlash("http://onix-bpp:8082/bpp/caller/")).isEqualTo(
+                "http://onix-bpp:8082/bpp/caller");
     }
 }

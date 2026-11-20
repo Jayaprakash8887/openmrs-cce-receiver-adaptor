@@ -28,9 +28,9 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Sygnal switched off ({@code receiver.beckn.enabled=false}): the Sygnal endpoint does not exist, and
+ * Beckn switched off ({@code receiver.beckn.enabled=false}): the Beckn endpoints do not exist, and
  * {@code /api/v1/openmrs/fhir} answers exactly as before the Beckn change (202 / 207 / 422 / 503).
- * Security is off here (the default); the bearer-token rule is tested in {@code SignalEmitEndpointTest}.
+ * Security is off here (the default); the bearer-token rule is tested in {@code BecknWebhookEnabledTest}.
  */
 @SpringBootTest(properties = {"openmrs.notification.enabled=false", "receiver.beckn.enabled=false"})
 @AutoConfigureMockMvc
@@ -54,11 +54,14 @@ class BecknDisabledAndApiRegressionTest {
     }
 
     @Test
-    void sygnal_endpoint_does_not_exist_when_disabled() throws Exception {
-        assertThat(context.getBeanNamesForType(SygnalController.class)).isEmpty();
-        mvc.perform(post("/sygnal/signal/emit").contentType(MediaType.APPLICATION_JSON).content("{}"))
+    void beckn_endpoints_do_not_exist_when_disabled() throws Exception {
+        assertThat(context.getBeanNamesForType(BecknWebhookController.class)).isEmpty();
+        mvc.perform(post("/beckn/bpp-webhook/update").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isNotFound());
         mvc.perform(post("/beckn/bap-webhook/on_update").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isNotFound());
+        assertThat(context.getBeanNamesForType(SygnalController.class)).isEmpty();
+        mvc.perform(post("/sygnal/signal/emit").contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isNotFound());
     }
 

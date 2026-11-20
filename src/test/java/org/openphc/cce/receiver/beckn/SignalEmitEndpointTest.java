@@ -31,17 +31,22 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.timeout;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static org.openphc.cce.receiver.beckn.BecknTestMessages.*;
+import static org.openphc.cce.receiver.beckn.SygnalTestMessages.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * {@code POST /sygnal/signal/emit} with {@code receiver.beckn.enabled=true}, the ids from application.yml
+ * {@code POST /sygnal/signal/emit} with {@code receiver.beckn.enabled=true}, the Sygnal ids from application.yml
  * and the bearer token on. OpenMRS is mocked; the care alert notifier runs for real.
  */
 @SpringBootTest(properties = {
         "receiver.beckn.enabled=true",
+        // The Spice referral settings are required as well when the endpoints are on.
+        "receiver.beckn.self.bpp-id=bpp.openmrs.example.org",
+        "receiver.beckn.self.bpp-uri=https://openmrs.example.org/bpp/receiver",
+        "receiver.beckn.spice.bap-id=bap.spice.example.org",
+        "receiver.beckn.spice.bap-uri=https://spice.example.org/bap/receiver",
         "cce.security.enabled=true",
         "cce.security.token=secret-token"
 })
@@ -190,16 +195,15 @@ class SignalEmitEndpointTest {
     }
 
     @Test
-    void the_old_beckn_endpoints_are_gone() throws Exception {
-        String old = signalEmit("on_status", CCE_ID, SELF_ID, signal());
-        mvc.perform(post("/beckn/bap-webhook/on_status").contentType(MediaType.APPLICATION_JSON).content(old))
+    void the_spice_beckn_endpoints_stay_next_to_it() throws Exception {
+        // A care alert is not a Beckn message: the bap-webhook does not take it as an alert any more.
+        mvc.perform(post("/beckn/bap-webhook/sygnal/signal/emit").contentType(MediaType.APPLICATION_JSON)
+                        .content(signalEmit()))
                 .andExpect(status().isNotFound());
-        mvc.perform(post("/beckn/bap-webhook/on_update").contentType(MediaType.APPLICATION_JSON).content(old))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/beckn/bpp-webhook/update").contentType(MediaType.APPLICATION_JSON).content(old))
-                .andExpect(status().isNotFound());
-        mvc.perform(post("/beckn/bpp-webhook/confirm").contentType(MediaType.APPLICATION_JSON).content(old))
-                .andExpect(status().isNotFound());
+        mvc.perform(post("/beckn/bpp-webhook/cancel").contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message.error.code").value("NOT_SUPPORTED"));
+        verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
     }
 
     @Test

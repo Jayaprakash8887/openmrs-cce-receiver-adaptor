@@ -7,7 +7,8 @@ import org.springframework.stereotype.Component;
 
 /**
  * Reads the result of the write path ({@link InboundProcessingService#process}) as one HTTP status.
- * Used by {@code InboundResourceController} for {@code /api/v1/openmrs/fhir}.
+ * Used by {@code InboundResourceController} for {@code /api/v1/openmrs/fhir} and by the Beckn
+ * endpoint, so both read the write path the same way.
  *
  * <ul>
  *   <li>202 — every resource was processed</li>

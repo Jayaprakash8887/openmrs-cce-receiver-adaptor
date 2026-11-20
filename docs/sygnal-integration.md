@@ -5,7 +5,7 @@
 
 The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its care alerts there, and the receiver raises them as OpenMRS notifications. It is an extra door into OpenMRS, not a replacement: the existing `POST /api/v1/openmrs/fhir` endpoint is unchanged, and with `OPENMRS_RECEIVER_BECKN_ENABLED=false` the receiver behaves exactly as before Beckn.
 
-This replaces the earlier Beckn design. The `/beckn/bpp-webhook` and `/beckn/bap-webhook` endpoints, `on_update` / `on_status`, the Spice referral flows (`update`, and `select` / `init` / `confirm` / `status`), the "referrals in" commitment and every Spice / onix setting are gone (§9).
+Only the CCE care-alert leg uses Sygnal. It replaces the earlier Beckn `on_status` care alert on `/beckn/bap-webhook`. The Spice ↔ OpenMRS referral flows (`/beckn/bpp-webhook/{update,select,init,confirm,status}`, the callbacks to Spice, and Spice's `on_update` / `on_status` on `/beckn/bap-webhook`) stay standard Beckn and are unchanged: see [beckn-integration.md](beckn-integration.md).
 
 ---
 
@@ -43,6 +43,7 @@ What stays the same:
 
 - `POST /api/v1/openmrs/fhir` and its answers.
 - The write path: `BundleSplitter`, `ResourceRouter`, the referral handling (closed "Referral Intake" visit, "Referral In" encounter, Referral order, bell notification).
+- The Spice referral endpoints under `/beckn/**` ([beckn-integration.md](beckn-integration.md)).
 - The receiver keeps no state between messages, except the notification client's de-duplication memory. No database, no queue.
 
 Nothing is written into OpenMRS by the Sygnal endpoint except the notification.
@@ -51,7 +52,7 @@ Nothing is written into OpenMRS by the Sygnal endpoint except the notification.
 
 ## 3. Endpoint
 
-`POST /sygnal/signal/emit` exists only when `receiver.beckn.enabled=true`. With it off, no Sygnal bean is created and the path answers 404.
+`POST /sygnal/signal/emit` exists only when `receiver.beckn.enabled=true`, the same switch as the Beckn referral endpoints. With it off, no Sygnal or Beckn bean is created and the path answers 404.
 
 It is called by `onix-openmrs`. onix receives the signal at `https://<public-host>/sygnal/receiver/sygnal/signal/emit`, checks the signature and the schema, and forwards the body unchanged to `http://openmrs-cce-receiver-adaptor:8080/sygnal/signal/emit` (the action is the path).
 
@@ -183,6 +184,7 @@ onix forwards the network's `Authorization: Signature …` header. Under `/api/*
 | Path | Checked by |
 |---|---|
 | `/api/**` | The bearer token, when `CCE_SECURITY_ENABLED=true` |
+| `/beckn/**` | The Beckn signature (Spice referrals), checked by `openmrs-onix`. Unchanged |
 | `/sygnal/**` | The Sygnal signature, checked by `onix-openmrs` before it forwards. No token. Plus the `senderId` / `receiverId` checks (§3.2) |
 | `/actuator/health`, `/actuator/info` | Nothing |
 
@@ -204,19 +206,17 @@ receiver:
 
 | Property | Env Var | Default | Description |
 |---|---|---|---|
-| `receiver.beckn.enabled` | `OPENMRS_RECEIVER_BECKN_ENABLED` | `true` | Turns `POST /sygnal/signal/emit` on. Off → 404 |
+| `receiver.beckn.enabled` | `OPENMRS_RECEIVER_BECKN_ENABLED` | `true` | Turns `POST /sygnal/signal/emit` and the Beckn referral endpoints on. Off → 404 |
 | `receiver.beckn.self.id` | `OPENMRS_RECEIVER_BECKN_SELF_ID` | `bap.openmrs.nextsteps.mdtlabs.org` | OpenMRS's subscriber id. A signal must carry it as `context.receiverId` |
 | `receiver.beckn.cce.id` | `OPENMRS_RECEIVER_BECKN_CCE_ID` | `bpp.cce.nextsteps.mdtlabs.org` | CCE's subscriber id. A signal must carry it as `context.senderId` |
 
-With the endpoint on, the receiver does not start when either id is blank; the error names every missing one. The receiver sends nothing on the network, so it needs no onix URL, network id or receiver URI. `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only. The notification settings (`OPENMRS_NOTIFICATION_*`) apply to care alerts as to every other notification.
-
-Removed settings (no longer read): `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL`, `OPENMRS_RECEIVER_BECKN_SELF_BPP_ID`, `OPENMRS_RECEIVER_BECKN_SELF_BPP_URI`, `OPENMRS_RECEIVER_BECKN_NETWORK_ID`, `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID`, `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI`, `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE`, `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES`.
+These two ids sit in the same `receiver.beckn` block as the Spice referral settings (`self.bpp-id`, `self.bpp-uri`, `self.network-id`, `onix.bpp-caller-url`, `spice.*`, `health-id-types`; [beckn-integration.md §7](beckn-integration.md#7-settings)). With the endpoints on, the receiver does not start when any required one is blank; the error names every missing one. The Sygnal endpoint sends nothing on the network, so it uses no onix URL. `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only. The notification settings (`OPENMRS_NOTIFICATION_*`) apply to care alerts as to every other notification.
 
 ---
 
 ## 7. Deployment and onix Routing
 
-`onix-openmrs` runs two modules on port 8082: `/sygnal/receiver/` (inbound) and `/sygnal/caller/` (used by the emitter adaptor to send `sygnal/event/report`). Only the receiver module concerns this service:
+`onix-openmrs` runs two Sygnal modules on port 8082: `/sygnal/receiver/` (inbound) and `/sygnal/caller/` (used by the emitter adaptor to send `sygnal/event/report`). Only the receiver module concerns this endpoint. The Beckn referral routing to `/beckn/bpp-webhook` and `/beckn/bap-webhook` for Spice is unchanged ([beckn-integration.md §8](beckn-integration.md#8-deployment-and-onix-routing)).
 
 | onix module | Routes | To |
 |---|---|---|
@@ -246,14 +246,14 @@ Classes under `org.openphc.cce.receiver`. Every Sygnal bean is created only when
 | `SygnalController` | `controller` | `POST /sygnal/signal/emit` |
 | `SignalEmitService` | `beckn` | The checks (§3.2), the answer, hands the alert to the executor |
 | `CareAlertNotifier` | `beckn` | Turns the alert into an OpenMRS notification (§4) |
-| `BecknMessages` | `beckn` | Builds `Ack` and `Nack` |
-| `ErrorCodes`, `BecknException` | `beckn` | The canonical Beckn error codes; a request answered with a `Nack` |
+| `BecknMessages` | `beckn` | Builds `Ack` and `Nack` (shared with the Beckn endpoints) |
+| `ErrorCodes`, `BecknException` | `beckn` | The canonical Beckn error codes used by this endpoint (the Beckn referral endpoints keep their own `BecknCodes`); a request answered with a `Nack` |
 | `BecknMetrics`, `BecknMessageLog` | `beckn` | §8.1, §8.2 |
-| `BecknProperties`, `BecknConfig` | `config` | Bind and check `receiver.beckn.*`; the `careAlertExecutor` thread pool (2–4 threads, queue 200) |
+| `BecknProperties`, `BecknConfig` | `config` | Bind and check `receiver.beckn.*`; the `careAlertExecutor` thread pool (2–4 threads, queue 200), separate from the `becknCallbackExecutor` that sends the Spice callbacks |
 
 ### 8.1 Metrics
 
-Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label values taken from messages are cut to 100 characters; an action other than `sygnal/signal/emit` is counted as `other`.
+Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label values taken from messages are cut to 100 characters. The counters are shared with the Beckn endpoints; signals have `action="sygnal/signal/emit"`.
 
 | Metric | Type | Labels | Description |
 |---|---|---|---|
@@ -262,7 +262,7 @@ Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label va
 
 ### 8.2 Logging
 
-One line per signal received. Logger `org.openphc.cce.receiver.beckn.messages`, in `key=value` form, WARN for a `Nack`:
+One line per signal received. Logger `org.openphc.cce.receiver.beckn.messages` (shared with the Beckn lines, which start with `beckn`), in `key=value` form, WARN for a `Nack`:
 
 ```
 sygnal direction=IN action=sygnal/signal/emit peer=bpp.cce.nextsteps.mdtlabs.org transactionId=a41f… messageId=b2c3… signalId=b2c3… resourceType=CommunicationRequest code=HIGH/not-started/overdue result=ACK
@@ -282,18 +282,18 @@ Never logged: message bodies, the FHIR resource, the patient id.
 
 ---
 
-## 9. Limits and What Was Removed
+## 9. Limits
 
 | Topic | Now |
 |---|---|
 | Acting on an alert | Not built: the notification only informs. No task or order is opened |
 | Alert after a full queue | Answered 503 `Nack`. The contract treats 5xx as "send again"; check that the sender does (see `cce-beckn-service` `AdapterResult#isPermanentRefusal`) |
-| Spice referrals over Beckn | Removed: `/beckn/bpp-webhook/{update,select,init,confirm,status}`, `on_update` / `on_select` / `on_init` / `on_confirm` / `on_status` to Spice, the commitment file, the health-id type mapping. Referrals still arrive on `/api/v1/openmrs/fhir` |
-| Callbacks for the emitter | Removed: `/beckn/bap-webhook/{on_update,on_status}`. Sygnal has no callbacks |
-| Old paths | `/beckn/**` answers 404 |
+| Old CCE `on_status` alerts | An `on_status` on `/beckn/bap-webhook` carrying a `cce:CceCareAlert` is logged and acked as a plain callback; no notification |
+| Spice referrals | Unchanged standard Beckn ([beckn-integration.md](beckn-integration.md)) |
 
 ## 10. Related Documents
 
+- [Beckn Integration](beckn-integration.md) — Spice referrals
 - [Architecture](architecture.md)
 - [API Reference](api-reference.md)
 - [Configuration Guide](configuration-guide.md)

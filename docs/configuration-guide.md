@@ -60,35 +60,69 @@
 | `cce.security.username` | `CCE_SECURITY_USERNAME` | `cce-client` | Basic auth username (fallback if token not set) |
 | `cce.security.password` | `CCE_SECURITY_PASSWORD` | `changeme` | Basic auth password (fallback if token not set) |
 
-The token filter in `SecurityConfig` checks only paths that start with `/api/`. It applies when `cce.security.enabled=true` and the token is not blank. The Sygnal endpoint under `/sygnal/**` is not checked by it, and `SecurityConfig` permits it explicitly (see below).
+The token filter in `SecurityConfig` checks only paths that start with `/api/`. It applies when `cce.security.enabled=true` and the token is not blank. The Beckn endpoints under `/beckn/**` are not checked by it, and `SecurityConfig` permits them explicitly (see below).
+
+### Beckn
+
+> **Status:** Built (demo), off by default. Full design: [beckn-integration.md](beckn-integration.md).
+
+Turns on `POST /beckn/bpp-webhook/{action}` and `POST /beckn/bap-webhook/{action}`. Off by default. The existing `/api/v1/openmrs/fhir` endpoint is unchanged either way.
+
+| Property | Env Var | Default | Description |
+|----------|---------|---------|-------------|
+| `receiver.beckn.enabled` | `OPENMRS_RECEIVER_BECKN_ENABLED` | `true` (on `demo-beckn`) | Turns both Beckn endpoints on. Off → they answer 404 |
+| `receiver.beckn.onix.bpp-caller-url` | `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` | `http://onix-bpp:8082/bpp/caller` | `onix-bpp`'s caller, used to send `on_update` `ACCEPTED` to Spice |
+| `receiver.beckn.self.bpp-id` | `OPENMRS_RECEIVER_BECKN_SELF_BPP_ID` | — (required) | OpenMRS's provider (BPP) id in the network registry |
+| `receiver.beckn.self.bpp-uri` | `OPENMRS_RECEIVER_BECKN_SELF_BPP_URI` | — (required) | OpenMRS's provider address |
+| `receiver.beckn.self.network-id` | `OPENMRS_RECEIVER_BECKN_NETWORK_ID` | empty | Optional. Put into `context.networkId` of the `on_update` when the request has none. A `networkId` in the request is copied over and wins |
+| `receiver.beckn.spice.bap-id` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID` | — (required) | Spice's consumer (BAP) id. An `update` from any other `bapId` gets `Nack` (400) `BAD_REQUEST`. Any non-blank `message.contract.id` is accepted and echoed in `on_update` |
+| `receiver.beckn.spice.bap-uri` | `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI` | — (required) | Spice's consumer address |
+| `receiver.beckn.spice.referrals-in.commitment-file` | `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE` | `classpath:beckn/commitment-referral.json` | The commitment sent in `on_update`, and in a health-referral callback whose request has none. A JSON object with an `id`; read once at start |
+| `receiver.beckn.health-id-types` | `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` | empty | Health referrals: OpenMRS identifier type per patient health id system, `SYSTEM=type` pairs separated by `;` (e.g. `ABHA=national-id`). Without a pair the system is the type name, created on first use |
+
+```yaml
+receiver:
+  beckn:
+    enabled: ${OPENMRS_RECEIVER_BECKN_ENABLED:true}    # on by default on the demo-beckn branch
+    onix:
+      bpp-caller-url: ${OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL:http://onix-bpp:8082/bpp/caller}
+    self:
+      bpp-id: ${OPENMRS_RECEIVER_BECKN_SELF_BPP_ID:}                    # e.g. bpp.openmrs.example.org
+      bpp-uri: ${OPENMRS_RECEIVER_BECKN_SELF_BPP_URI:}                  # e.g. https://openmrs.example.org/bpp/receiver
+      network-id: ${OPENMRS_RECEIVER_BECKN_NETWORK_ID:}
+    spice:
+      bap-id: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID:}               # e.g. bap.spice.example.org
+      bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}             # e.g. https://spice.example.org/bap/receiver
+      referrals-in:
+        commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
+    health-id-types: ${OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES:}   # e.g. ABHA=national-id
+```
+
+The ids have no defaults. With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the default on the `demo-beckn` branch, the adaptor does not start when any of them is blank; the error names every missing setting. The example ids are made up. The "referrals in" ids must match the emitter's and Spice's settings.
+
+**Security note.** `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only. The Beckn endpoints are under `/beckn/**` because onix forwards the Beckn `Authorization: Signature …` header; under `/api/**` every Beckn message would get 401 whenever security is on. On `/beckn/**` the Beckn signature is checked by `openmrs-onix`, so keep these paths reachable only inside the OpenMRS network.
 
 ### Sygnal (CCE care alerts)
 
 > **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
 
-Turns on `POST /sygnal/signal/emit`, where `onix-openmrs` forwards CCE's care alerts (`sygnal/signal/emit`). The existing `/api/v1/openmrs/fhir` endpoint is unchanged either way.
+`POST /sygnal/signal/emit`, where `onix-openmrs` forwards CCE's care alerts (`sygnal/signal/emit`), is switched with the Beckn endpoints by `OPENMRS_RECEIVER_BECKN_ENABLED`. Two more ids in the same `receiver.beckn` block:
 
 | Property | Env Var | Default | Description |
 |----------|---------|---------|-------------|
-| `receiver.beckn.enabled` | `OPENMRS_RECEIVER_BECKN_ENABLED` | `true` | Turns the Sygnal endpoint on. Off → it answers 404 |
-| `receiver.beckn.self.id` | `OPENMRS_RECEIVER_BECKN_SELF_ID` | `bap.openmrs.nextsteps.mdtlabs.org` | OpenMRS's subscriber id. A signal whose `context.receiverId` differs gets `Nack` (400) `CTX_INVALID_FIELD` |
+| `receiver.beckn.self.id` | `OPENMRS_RECEIVER_BECKN_SELF_ID` | `bap.openmrs.nextsteps.mdtlabs.org` | OpenMRS's Sygnal subscriber id. A signal whose `context.receiverId` differs gets `Nack` (400) `CTX_INVALID_FIELD` |
 | `receiver.beckn.cce.id` | `OPENMRS_RECEIVER_BECKN_CCE_ID` | `bpp.cce.nextsteps.mdtlabs.org` | CCE's subscriber id. A signal whose `context.senderId` differs gets `Nack` (400) `CTX_INVALID_FIELD` |
 
 ```yaml
 receiver:
   beckn:
-    enabled: ${OPENMRS_RECEIVER_BECKN_ENABLED:true}
     self:
       id: ${OPENMRS_RECEIVER_BECKN_SELF_ID:bap.openmrs.nextsteps.mdtlabs.org}
     cce:
       id: ${OPENMRS_RECEIVER_BECKN_CCE_ID:bpp.cce.nextsteps.mdtlabs.org}
 ```
 
-With the endpoint on, the adaptor does not start when an id is set to blank; the error names every missing setting. The ids must match the network registry and `cce-beckn-service`'s settings. The notification itself uses the `openmrs.notification.*` settings below.
-
-Removed with the Spice referral flows and the Beckn callbacks (no longer read): `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL`, `OPENMRS_RECEIVER_BECKN_SELF_BPP_ID`, `OPENMRS_RECEIVER_BECKN_SELF_BPP_URI`, `OPENMRS_RECEIVER_BECKN_NETWORK_ID`, `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID`, `OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI`, `OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE`, `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES`.
-
-**Security note.** `CCE_SECURITY_ENABLED` and `CCE_SECURITY_TOKEN` keep their meaning, for `/api/**` only. The Sygnal endpoint is under `/sygnal/**` because onix forwards the `Authorization: Signature …` header; under `/api/**` every signal would get 401 whenever security is on. On `/sygnal/**` the signature is checked by `onix-openmrs`, so keep these paths reachable only inside the OpenMRS network.
+Both are required (non-blank) when the endpoints are on. `/sygnal/**` is outside the bearer-token filter for the same reason as `/beckn/**`. The notification itself uses the `openmrs.notification.*` settings below.
 
 ### Identifier Configuration
 

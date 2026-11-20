@@ -41,9 +41,12 @@ public class SecurityConfig {
             http.addFilterBefore(new BearerTokenFilter(securityToken), UsernamePasswordAuthenticationFilter.class)
                 .authorizeHttpRequests(auth -> auth
                     .requestMatchers("/actuator/health/**", "/actuator/info").permitAll()
-                    // Sygnal endpoint: the signature is checked by onix-openmrs before it
+                    // Beckn endpoints: the Beckn signature is checked by openmrs-onix before it
                     // forwards. onix passes on "Authorization: Signature ...", which the bearer
-                    // check would refuse. See docs/sygnal-integration.md §5.
+                    // check would refuse. See docs/beckn-integration.md §6.
+                    .requestMatchers("/beckn/**").permitAll()
+                    // Sygnal endpoint (CCE care alerts): the same, checked by onix-openmrs.
+                    // See docs/sygnal-integration.md §5.
                     .requestMatchers("/sygnal/**").permitAll()
                     .requestMatchers("/api/**").authenticated()
                     .anyRequest().permitAll()
@@ -72,9 +75,9 @@ public class SecurityConfig {
                 return;
             }
 
-            // Only /api/** carries the bearer token. /sygnal/** is named here as well, so that a
-            // later change to the rule below cannot catch the Sygnal endpoint by accident.
-            if (path.startsWith("/sygnal/") || !path.startsWith("/api/")) {
+            // Only /api/** carries the bearer token. /beckn/** and /sygnal/** are named here as well,
+            // so that a later change to the rule below cannot catch them by accident.
+            if (path.startsWith("/beckn/") || path.startsWith("/sygnal/") || !path.startsWith("/api/")) {
                 filterChain.doFilter(request, response);
                 return;
             }

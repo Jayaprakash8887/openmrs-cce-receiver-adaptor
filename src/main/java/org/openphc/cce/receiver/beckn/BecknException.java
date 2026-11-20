@@ -2,7 +2,7 @@ package org.openphc.cce.receiver.beckn;
 
 import org.springframework.http.HttpStatus;
 
-/** A request that is answered with a {@code Nack}: the HTTP status, the error code and the text. */
+/** A request that is answered with a {@code Nack}: the HTTP status, the code and the text. */
 public class BecknException extends RuntimeException {
 
     private final HttpStatus status;
@@ -14,9 +14,18 @@ public class BecknException extends RuntimeException {
         this.code = code;
     }
 
-    /** The sender's error (400): the message must change before it is sent again. */
+    public static BecknException badRequest(String message) {
+        return new BecknException(HttpStatus.BAD_REQUEST, BecknCodes.BAD_REQUEST, message);
+    }
+
+    /** A 400 with the given code: used by the Sygnal endpoint, whose codes come from {@link ErrorCodes}. */
     public static BecknException badRequest(String code, String message) {
         return new BecknException(HttpStatus.BAD_REQUEST, code, message);
+    }
+
+    public static BecknException notSupported(String action) {
+        return new BecknException(HttpStatus.BAD_REQUEST, BecknCodes.NOT_SUPPORTED,
+                "The action '" + BecknMessageLog.clean(action) + "' is not supported");
     }
 
     public HttpStatus status() {
