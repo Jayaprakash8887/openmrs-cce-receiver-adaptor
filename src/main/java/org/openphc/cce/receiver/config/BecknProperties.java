@@ -1,88 +1,46 @@
 package org.openphc.cce.receiver.config;
 
 import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.core.io.Resource;
 
 import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Settings for the Beckn endpoints ({@code receiver.beckn.*}). See docs/beckn-integration.md §7.
+ * Settings for the Sygnal endpoint ({@code receiver.beckn.*}). See docs/sygnal-integration.md §6.
  *
  * <p>Bound only when {@code receiver.beckn.enabled=true} (by {@code BecknConfig}). {@link #validate()}
  * then makes the start fail when an id is missing.
+ *
+ * @param self OpenMRS on the Sygnal network: its subscriber id, which a {@code sygnal/signal/emit} must
+ *             carry as {@code context.receiverId}
+ * @param cce  CCE: its subscriber id, which a {@code sygnal/signal/emit} must carry as
+ *             {@code context.senderId}
  */
 @ConfigurationProperties(prefix = "receiver.beckn")
 public record BecknProperties(
         boolean enabled,
-        Onix onix,
         Self self,
-        Spice spice,
-        String healthIdTypes
+        Cce cce
 ) {
 
     public BecknProperties {
-        if (onix == null) onix = new Onix(null);
-        if (self == null) self = new Self(null, null, null);
-        if (spice == null) spice = new Spice(null, null, null);
-        if (healthIdTypes == null) healthIdTypes = "";
+        if (self == null) self = new Self(null);
+        if (cce == null) cce = new Cce(null);
     }
 
-    /**
-     * The OpenMRS identifier type for a health id of a health referral (participant
-     * {@code healthIds[].system}, for example {@code ABHA}), from {@code receiver.beckn.health-id-types}:
-     * {@code SYSTEM=type} pairs separated by {@code ;} or {@code ,}, systems matched ignoring case.
-     * Without a pair the system itself is the type name; OpenMRS creates the type the first time.
-     */
-    public String identifierTypeFor(String healthIdSystem) {
-        for (String pair : healthIdTypes.split("[;,]")) {
-            int eq = pair.indexOf('=');
-            if (eq > 0 && pair.substring(0, eq).trim().equalsIgnoreCase(healthIdSystem)) {
-                String type = pair.substring(eq + 1).trim();
-                if (!type.isEmpty()) {
-                    return type;
-                }
-            }
-        }
-        return healthIdSystem;
+    /** OpenMRS's subscriber id in the network registry, e.g. {@code bap.openmrs.nextsteps.mdtlabs.org}. */
+    public record Self(String id) {
     }
 
-    /** {@code onix-bpp}'s caller endpoint, used for every callback ({@code on_update}, {@code on_confirm}, ...). */
-    public record Onix(String bppCallerUrl) {
-        public Onix {
-            if (bppCallerUrl == null || bppCallerUrl.isBlank()) bppCallerUrl = "http://onix-bpp:8082/bpp/caller";
-        }
-    }
-
-    /** OpenMRS as a provider (BPP), as registered in the network registry. */
-    public record Self(String bppId, String bppUri, String networkId) {
-    }
-
-    /** The one HMIS peer (Spice). */
-    public record Spice(String bapId, String bapUri, ReferralsIn referralsIn) {
-        public Spice {
-            if (referralsIn == null) referralsIn = new ReferralsIn(null);
-        }
-    }
-
-    /**
-     * The "referrals in" commitment. There is no confirm, so no contract id is issued: the receiver
-     * accepts any non-blank one and echoes the request's contract id and transaction id.
-     */
-    public record ReferralsIn(Resource commitmentFile) {
+    /** CCE's subscriber id, e.g. {@code bpp.cce.nextsteps.mdtlabs.org}. */
+    public record Cce(String id) {
     }
 
     /** Throws when a required setting is missing, naming every missing one. */
     public void validate() {
         List<String> missing = new ArrayList<>();
-        require(missing, onix.bppCallerUrl(), "receiver.beckn.onix.bpp-caller-url");
-        require(missing, self.bppId(), "receiver.beckn.self.bpp-id");
-        require(missing, self.bppUri(), "receiver.beckn.self.bpp-uri");
-        require(missing, spice.bapId(), "receiver.beckn.spice.bap-id");
-        require(missing, spice.bapUri(), "receiver.beckn.spice.bap-uri");
-        if (spice.referralsIn().commitmentFile() == null) {
-            missing.add("receiver.beckn.spice.referrals-in.commitment-file");
-        }
+        require(missing, self.id(), "receiver.beckn.self.id");
+        require(missing, cce.id(), "receiver.beckn.cce.id");
         if (!missing.isEmpty()) {
             throw new IllegalStateException(
                     "receiver.beckn.enabled=true, but these settings are missing: " + String.join(", ", missing));

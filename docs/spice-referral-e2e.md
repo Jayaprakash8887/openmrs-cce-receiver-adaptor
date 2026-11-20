@@ -9,7 +9,7 @@ or the exact UI clicks you make, plus an explanation of every UUID referenced.
 > (Dr John) acts on the inbound referral, then closes the loop back to SPICE.
 > **No frontend code changes are required for this flow.** Only REST + UI interaction.
 
-> **Over Beckn (proposal, not built yet).** With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, Spice's referral arrives at the adaptor from `onix-bpp` at `POST /beckn/bpp-webhook/update`, instead of from CCE. The adaptor writes it the same way (Step 1 below is unchanged in effect) and answers Spice with an `Ack` (or a `Nack` with a code), then `on_update` `ACCEPTED`. Once the order is closed (Step 8), the outcome goes back to Spice from the emitter adaptor as `on_status`. The existing `/api/v1/openmrs/fhir` endpoint is unchanged. See [beckn-integration.md](beckn-integration.md).
+> **Over Beckn: removed.** The demo Beckn path for Spice referrals (`/beckn/bpp-webhook/update`) no longer exists; referrals arrive only on `/api/v1/openmrs/fhir`. See [sygnal-integration.md](sygnal-integration.md) for what the adaptor receives over the network now (CCE care alerts).
 
 ---
 

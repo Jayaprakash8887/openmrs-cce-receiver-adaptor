@@ -104,47 +104,35 @@ Log source: `OpenMrsNotificationClient`, `RecipientResolver`. Notification failu
 | Same alert fired twice | Dedupe TTL too short, or upstream retry storm | Raise `OPENMRS_NOTIFICATION_DEDUPE_TTL_HOURS` |
 | `Pushed alert ... to N recipient(s)` where N is unexpectedly high | `role-or-static` policy + OpenMRS `/user?role=` returns all users (server-side filter is a no-op) | Switch `OPENMRS_NOTIFICATION_RECIPIENTS_POLICY=static` |
 
-### Beckn Issues
+### Sygnal (CCE care alert) Issues
 
-> **Status:** Built (demo), off by default. Full design: [beckn-integration.md](beckn-integration.md). The existing `/api/v1/openmrs/fhir` endpoint is unchanged.
+> **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md). The existing `/api/v1/openmrs/fhir` endpoint is unchanged.
 
-Quick checks. Run the `curl` from any container on `cce-net` that has it; on the dev host, `http://localhost:8097` reaches the adaptor too. Run the `grep` in the `openmrs-onix` checkout.
+Quick checks. Run the `curl` from any container on `cce-net` that has it; on the dev host, `http://localhost:8097` reaches the adaptor too.
 
 ```bash
-# Endpoint is on: an unsupported action should answer Nack (400) NOT_SUPPORTED, not 404
-curl -s -o /dev/null -w '%{http_code}\n' -X POST \
-  http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook/cancel \
+# Endpoint is on: an empty object should answer Nack (400) CTX_MISSING_FIELD, not 404
+curl -s -X POST http://openmrs-cce-receiver-adaptor:8080/sygnal/signal/emit \
   -H 'Content-Type: application/json' -d '{}'
 
-# Where onix sends inbound messages
-grep -A3 target devkit/config/local-simple-routing-BPPReceiver.yaml devkit/config/local-simple-routing-BAPReceiver.yaml
-
-# One log line per Beckn message
-docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
+# One log line per signal (WARN for a Nack)
+docker compose logs openmrs-cce-receiver-adaptor | grep 'sygnal direction='
 ```
 
 | Symptom | Cause | Fix |
 |---------|-------|-----|
-| `404` on `/beckn/bpp-webhook/*` or `/beckn/bap-webhook/*` | Beckn is off | Set `OPENMRS_RECEIVER_BECKN_ENABLED=true` and restart |
-| Adaptor does not start: `receiver.beckn.enabled=true, but these settings are missing: …` | Beckn is on but an id is blank | Set the named `BECKN_*` variables (see the Configuration Guide) |
-| `beckn direction=OUT action=on_update … result=ERROR` | `onix-bpp` caller unreachable or refused the `on_update` | Check `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` and `onix-bpp`; Spice already has its `Ack`, nothing is lost |
-| `401` on a Beckn message | onix routing points at an `/api/...` path; the bearer-token filter rejects the `Authorization: Signature …` header | Point the routing at `/beckn/bpp-webhook` and `/beckn/bap-webhook`, not `/api/...` |
-| Spice's referrals never reach the adaptor; onix logs connection errors to `host.docker.internal:8075` | `openmrs-onix` routing is still the `cce-onix` copy | Set `target.url` to `http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook` (BPPReceiver) and `.../beckn/bap-webhook` (BAPReceiver) |
-| onix cannot resolve `openmrs-cce-receiver-adaptor` | Containers on different networks | Put the adaptor and both onix containers on `cce-net` |
-| onix containers fail to start on the dev host | Host ports 8081 / 8082 taken by `keycloak` / `cce-openhim-core` | Publish onix on 8181 / 8182 |
-| Every referral gets `Nack` `BAD_REQUEST`, `openmrs_beckn_peer_unknown_total` rises | Spice's `bapId` differs from `receiver.beckn.spice.bap-id` | Align `OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID` with Spice's registered subscriber id |
-| `Nack` `REFERRAL_REJECTED` with a write-path reason | The referral failed as it would on `/api/v1/openmrs/fhir` (400, 422, or 207 without the `ServiceRequest`) | Use the Processing and SPICE-specific rows above |
-| Spice gets `Nack` (500) `UNAVAILABLE` | OpenMRS slow or down (write path answered 503, 500 or 502), or an exception | Check OpenMRS health; Spice sends again |
-| Spice or `spice-onix` times out, but the referral is written in OpenMRS | `onix-bpp`'s wait is shorter than the write path (onix default 5 s) | Raise `onix-bpp`'s `responseHeaderTimeout` above the write path's worst case. Spice's resend is caught as a repeat |
-| Referral written, but Spice never sees `ACCEPTED` | `on_update` to `onix-bpp` failed. It is sent once | Check `OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL` and `openmrs_beckn_on_update_sent_total{result!="ack"}`. The `Ack` is the proof; Spice should not depend on `on_update` |
-| No `on_update` logged for an event the emitter sent, or it is logged before the emitter's `Ack` | `on_update` is sent once and may come before the `Ack` | Expected. Only the `Ack` counts |
-| Referral shows a placeholder patient | Spice sent no `Patient` entry | Ask Spice to send the `Patient` as a second performance entry |
-| `cancel` answered `Nack` `NOT_SUPPORTED` | Not supported in the demo | Expected |
-| A health referral (`select` …) never reaches the adaptor; onix logs `failed to load schema from https://schema.beckn.io/Health…` | The adapter has no local copy of the Health* schemas | Redeploy with deploy-scripts that ship `k8s/beckn/onix/health-schema/`; check `kubectl get cm onix-schema` lists `HealthReferral__v2.1__attributes.yaml` |
-| `confirm` answered `BAD_REQUEST` "no participant with participantRole PATIENT" or "no … healthIds" | Spice sent no patient, or a patient without a health id | Ask Spice to send the `PATIENT` participant with at least one `healthIds` entry |
-| `status` answered `Ack` but no `on_status` | OpenMRS has no order for that coordination id (`openmrs_beckn_status_unknown_total`): never confirmed, or the adaptor restarted and the request carries no patient health id | Expected; Spice can send `status` with the participants |
-| Health-referral patient gets a new identifier type named after the system (e.g. `ABHA`) | No `OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES` pair for it | Set e.g. `ABHA=national-id` if that id should be the national id |
-| Outcome of a referral out not visible in OpenMRS | `on_status` from Spice is logged only | Expected in the demo (design Q5) |
+| `404` on `/sygnal/signal/emit` | The endpoint is off | Set `OPENMRS_RECEIVER_BECKN_ENABLED=true` and restart |
+| `404` on `/beckn/bap-webhook/*` or `/beckn/bpp-webhook/*` | Those Beckn endpoints are removed | Route `sygnal/signal/emit` in `onix-openmrs` to `http://openmrs-cce-receiver-adaptor:8080` |
+| Adaptor does not start: `receiver.beckn.enabled=true, but these settings are missing: …` | An id is set to blank | Set `OPENMRS_RECEIVER_BECKN_SELF_ID` / `OPENMRS_RECEIVER_BECKN_CCE_ID`, or unset them to use the defaults |
+| Every alert gets `Nack` `CTX_INVALID_FIELD` "context.receiverId …" | CCE addresses OpenMRS with another subscriber id | Align `OPENMRS_RECEIVER_BECKN_SELF_ID` with the id in `cce-beckn-service`'s HMIS list and the registry |
+| Every alert gets `Nack` `CTX_INVALID_FIELD` "context.senderId …" | CCE's subscriber id differs from `receiver.beckn.cce.id` | Align `OPENMRS_RECEIVER_BECKN_CCE_ID` with CCE's registered id |
+| `Nack` `CTX_ACTION_MISMATCH` | onix routed another action to this path | Fix the `onix-openmrs` routing: only `sygnal/signal/emit` goes to the adaptor |
+| `Nack` `SCH_TYPE_NOT_SUPPORTED` | The signal is not a `sygnal:Signal` with a `cce:CceCareAlert` | Check the sender's version against the CCE Sygnal profile |
+| `401` on a signal | onix routing points at an `/api/...` path; the bearer-token filter rejects the `Authorization: Signature …` header | Route to `http://openmrs-cce-receiver-adaptor:8080` (onix appends `/sygnal/signal/emit`) |
+| onix cannot resolve `openmrs-cce-receiver-adaptor` | Containers on different networks | Put the adaptor and `onix-openmrs` on `cce-net` |
+| `Nack` (503) `NET_INTERNAL_ERROR` "queue is full", `openmrs_beckn_care_alerts_total{result="dropped"}` rises | More alerts than the notification threads can raise (OpenMRS slow) | Check OpenMRS health. CCE may send again |
+| Alert acked but no notification; `openmrs_beckn_care_alerts_total{result="not-notified"}` rises | No recipients resolved, notifications disabled, or OpenMRS `/alert` failed | See the notification rows above (`OPENMRS_NOTIFICATION_*`) |
+| Same alert notified once though CCE sent it twice | De-duplication on the delivery id | Expected |
 
 ---
 
@@ -172,9 +160,8 @@ docker compose logs openmrs-cce-receiver-adaptor | grep -i beckn
 | `cce_receiver_rest_latency_seconds` | < 5s (p95) | > 10s |
 | `cce_receiver_transform_errors_total` | 0 | Any increase |
 | `cce_receiver_processing_total_seconds` | < 30s per Bundle | > 60s |
-| `openmrs_beckn_messages_received_total{action="update",result="nack"}` (proposal) | 0 | Any sustained increase |
-| `openmrs_beckn_peer_unknown_total` (proposal) | 0 | Any |
-| `openmrs_beckn_on_update_sent_total{result!="ack"}` (proposal) | 0 | Any |
+| `openmrs_beckn_messages_received_total{action="sygnal/signal/emit",result="nack"}` | 0 | Any sustained increase |
+| `openmrs_beckn_care_alerts_total{result!="notified"}` | 0 or very low | Any sustained increase |
 
 ---
 

@@ -8,7 +8,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
-/** The bean exists only when {@code receiver.beckn.enabled=true}. */
+/** The bean exists only when {@code receiver.beckn.enabled=true} (the Sygnal endpoint is on). */
 @Target({ElementType.TYPE, ElementType.METHOD})
 @Retention(RetentionPolicy.RUNTIME)
 @Documented

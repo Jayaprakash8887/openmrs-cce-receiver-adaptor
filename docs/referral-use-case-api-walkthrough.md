@@ -11,7 +11,7 @@
 >
 > See [`spice-openmrs-referral-use-case.md`](./spice-openmrs-referral-use-case.md) for the architecture overview.
 >
-> **Over Beckn (proposal, not built yet).** With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the referral arrives at the adaptor from `onix-bpp` at `POST /beckn/bpp-webhook/update`, instead of from CCE (§10–§11). The adaptor writes it through the same path. The status update back to Spice (§13) goes from the emitter adaptor as a Beckn `on_status`. The existing `/api/v1/openmrs/fhir` endpoint is unchanged. See [`beckn-integration.md`](./beckn-integration.md).
+> **Over Beckn: removed.** The demo Beckn path for Spice referrals (`/beckn/bpp-webhook/update`) no longer exists; referrals arrive only on `/api/v1/openmrs/fhir`. See [sygnal-integration.md](sygnal-integration.md) for what the adaptor receives over the network now (CCE care alerts).
 
 ---
 

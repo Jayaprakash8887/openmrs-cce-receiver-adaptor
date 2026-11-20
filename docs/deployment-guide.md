@@ -130,60 +130,50 @@ ENTRYPOINT ["java", "-jar", "/app/app.jar"]
 
 ---
 
-## Beckn
+## Sygnal (CCE care alerts)
 
-> **Status:** Built (demo), off by default. Full design: [beckn-integration.md](beckn-integration.md).
+> **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
 
-The Beckn endpoints are optional. Set `OPENMRS_RECEIVER_BECKN_ENABLED=true` to turn them on; leave it unset and nothing changes. The existing `/api/v1/openmrs/fhir` endpoint is unchanged either way.
+CCE sends care alerts to OpenMRS as Sygnal `sygnal/signal/emit` messages. `onix-openmrs` receives them, checks the signature and the schema, and forwards them to the adaptor at `POST /sygnal/signal/emit`. Set `OPENMRS_RECEIVER_BECKN_ENABLED=false` to switch the endpoint off. The existing `/api/v1/openmrs/fhir` endpoint is unchanged either way.
 
-**Extra containers.** `openmrs-onix` runs `onix-bap`, `onix-bpp` and their Redis. They go in the same compose project as an optional group, on the `cce-net` network with the adaptor.
+**Extra container.** `onix-openmrs` (one onix with the `/sygnal/receiver/` and `/sygnal/caller/` modules, port 8082) and its Redis, on the `cce-net` network with the adaptor.
 
-**Environment.**
+**Environment.** The defaults are the demo network's ids; set them only when they differ:
 
 ```yaml
   openmrs-cce-receiver-adaptor:
     environment:
       OPENMRS_RECEIVER_BECKN_ENABLED: "true"
-      OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL: http://onix-bpp:8082/bpp/caller
-      OPENMRS_RECEIVER_BECKN_SELF_BPP_ID: bpp.openmrs.example.org
-      OPENMRS_RECEIVER_BECKN_SELF_BPP_URI: https://openmrs.example.org/bpp/receiver
-      OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID: bap.spice.example.org
-      OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI: https://spice.example.org/bap/receiver
+      OPENMRS_RECEIVER_BECKN_SELF_ID: bap.openmrs.nextsteps.mdtlabs.org
+      OPENMRS_RECEIVER_BECKN_CCE_ID: bpp.cce.nextsteps.mdtlabs.org
 ```
 
-The ids above are made up. With `OPENMRS_RECEIVER_BECKN_ENABLED=true` the adaptor does not start while any of them is blank. All settings are in the [Configuration Guide](configuration-guide.md#beckn).
+All settings are in the [Configuration Guide](configuration-guide.md#sygnal-cce-care-alerts). Remove the old `OPENMRS_RECEIVER_BECKN_ONIX_*`, `*_SELF_BPP_*`, `*_SPICE_*`, `*_NETWORK_ID`, `*_REFERRALS_IN_*` and `*_HEALTH_ID_TYPES` variables; they are no longer read.
 
-**onix routing.** `openmrs-onix` is a copy of `cce-onix` today, and its receiver routing still points at `host.docker.internal:8075`. Change `target.url` in `devkit/config/`:
+**onix routing.** In `onix-openmrs`'s `/sygnal/receiver/` routing, the action `sygnal/signal/emit` goes to `http://openmrs-cce-receiver-adaptor:8080`. onix appends the action, so the adaptor receives `POST /sygnal/signal/emit`. The old `bpp-webhook` / `bap-webhook` routes are gone.
 
-| File | `target.url` |
-|---|---|
-| `local-simple-routing-BPPReceiver.yaml` | `http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook` |
-| `local-simple-routing-BAPReceiver.yaml` | `http://openmrs-cce-receiver-adaptor:8080/beckn/bap-webhook` |
+**Wait.** The adaptor answers before it raises the notification, so onix's default wait is enough.
 
-**onix-bpp wait.** The adaptor answers as soon as the write path returns, but the write path can be slow (several OpenMRS calls, each up to `OPENMRS_REST_TIMEOUT` / `OPENMRS_FHIR_TIMEOUT`). Set `onix-bpp`'s `responseHeaderTimeout` longer than the write path's worst case. onix's default of 5 s is too short. `spice-onix` must then wait longer than `onix-bpp`; agree the numbers with the Spice team.
-
-**Schema.** The `CceClinicalEvent` schema files come from `cce-beckn-service`'s `schema/` folder. The default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`.
+**Schema.** onix checks `signalAttributes` against the `CceCareAlert` schema from `cce-beckn-service`'s `schema/` folder. The default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`.
 
 **Network and ports.**
 
 | Source | Destination | Port | Purpose |
 |---|---|---|---|
-| `onix-bpp` | Receiver Adaptor | 8080 | Referrals from Spice (`/beckn/bpp-webhook`) |
-| `onix-bap` | Receiver Adaptor | 8080 | Callbacks (`/beckn/bap-webhook`) |
-| Receiver Adaptor | `onix-bpp` | 8082 | `on_update` to Spice (`/bpp/caller/on_update`) |
+| `onix-openmrs` | Receiver Adaptor | 8080 | Care alerts (`/sygnal/signal/emit`) |
 
-On the dev host the adaptor is published on host port 8097 (container 8080). Host ports 8081 (`keycloak`) and 8082 (`cce-openhim-core`) are taken, so publish `onix-bap` and `onix-bpp` on 8181 and 8182. Inside `cce-net` they keep 8081 and 8082. Host port 8075 belongs to `care-coordinator`.
+The adaptor sends nothing to onix. On the dev host the adaptor is published on host port 8097 (container 8080). Host port 8082 is taken by `cce-openhim-core`, so publish `onix-openmrs` on another host port; inside `cce-net` it keeps 8082. Host port 8075 belongs to `care-coordinator`.
 
-Do not expose `/beckn/**` through a public proxy. Only `openmrs-onix` should reach it.
+Do not expose `/sygnal/**` of the adaptor through a public proxy. Only `onix-openmrs` should reach it; the public entry is onix's `/sygnal/receiver/`.
 
 **Checklist.**
 
-- [ ] `OPENMRS_RECEIVER_BECKN_ENABLED=true` on the adaptor
-- [ ] Both onix receiver routings point at `openmrs-cce-receiver-adaptor:8080/beckn/...`
-- [ ] Adaptor and onix containers on `cce-net`
-- [ ] `onix-bpp`'s `responseHeaderTimeout` raised above the write path's worst case (not the 5 s default)
+- [ ] `OPENMRS_RECEIVER_BECKN_ENABLED=true` on the adaptor (the default)
+- [ ] `OPENMRS_RECEIVER_BECKN_SELF_ID` / `OPENMRS_RECEIVER_BECKN_CCE_ID` match the registry and `cce-beckn-service`
+- [ ] `onix-openmrs` routes `sygnal/signal/emit` to `http://openmrs-cce-receiver-adaptor:8080`
+- [ ] Adaptor and `onix-openmrs` on `cce-net`
 - [ ] onix uses the `cce-beckn-service` schema base URL
-- [ ] "Referrals in" contract id and `transactionId` match the emitter's and Spice's settings
+- [ ] `cce-beckn-service` has OpenMRS's public onix receiver base (`https://<host>/sygnal/receiver`) as its `receiverUri`
 
 ---
 

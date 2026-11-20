@@ -78,27 +78,17 @@ spice:
     timeout: ${SPICE_FHIR_TIMEOUT:30000}
 
 receiver:
-  # Beckn endpoints (POST /beckn/bpp-webhook/{action}, POST /beckn/bap-webhook/{action}).
-  # On by default on the demo-beckn branch; OPENMRS_RECEIVER_BECKN_ENABLED=false removes the endpoints (404).
-  # When on, the start fails if any id below is blank. See docs/beckn-integration.md §7.
-  # spice: the one other HMIS that OpenMRS exchanges referrals with directly (Spice in the demo).
+  # Sygnal endpoint POST /sygnal/signal/emit: CCE care alerts, forwarded by onix-openmrs, raised as OpenMRS
+  # notifications. On by default on this branch; OPENMRS_RECEIVER_BECKN_ENABLED=false removes it (404).
+  # When on, the start fails if an id below is blank. See docs/sygnal-integration.md §6.
   beckn:
-    enabled: ${OPENMRS_RECEIVER_BECKN_ENABLED:true}    # on by default on the demo-beckn branch
-    onix:
-      bpp-caller-url: ${OPENMRS_RECEIVER_BECKN_ONIX_BPP_CALLER_URL:http://onix-bpp:8082/bpp/caller}
+    enabled: ${OPENMRS_RECEIVER_BECKN_ENABLED:true}
     self:
-      bpp-id: ${OPENMRS_RECEIVER_BECKN_SELF_BPP_ID:}
-      bpp-uri: ${OPENMRS_RECEIVER_BECKN_SELF_BPP_URI:}
-      network-id: ${OPENMRS_RECEIVER_BECKN_NETWORK_ID:}
-    spice:
-      bap-id: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_ID:}
-      bap-uri: ${OPENMRS_RECEIVER_BECKN_SPICE_BAP_URI:}
-      referrals-in:
-        commitment-file: ${OPENMRS_RECEIVER_BECKN_REFERRALS_IN_COMMITMENT_FILE:classpath:beckn/commitment-referral.json}
-    # Health referrals (select / init / confirm / status): the OpenMRS identifier type for each patient health id
-    # system, as SYSTEM=type pairs, e.g. "ABHA=national-id;HFR=hfr-id". A system without a pair is used as the
-    # type name (OpenMRS creates it the first time).
-    health-id-types: ${OPENMRS_RECEIVER_BECKN_HEALTH_ID_TYPES:}
+      # OpenMRS's subscriber id; a signal must carry it as context.receiverId.
+      id: ${OPENMRS_RECEIVER_BECKN_SELF_ID:bap.openmrs.nextsteps.mdtlabs.org}
+    cce:
+      # CCE's subscriber id; a signal must carry it as context.senderId.
+      id: ${OPENMRS_RECEIVER_BECKN_CCE_ID:bpp.cce.nextsteps.mdtlabs.org}
 
 cce:
   security:

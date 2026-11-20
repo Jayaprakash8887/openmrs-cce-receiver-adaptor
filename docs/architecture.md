@@ -22,26 +22,23 @@ The **OpenMRS CCE Receiver Adaptor** is a Spring Boot middleware that receives F
 
 The adaptor is the **receiver** component in the CCE architecture — it receives FHIR R4 resources produced by the Intelligence Service and writes them into OpenMRS. The Intelligence Service aggregates and processes data from upstream health systems (RHIE, SPICE, eBuzima) and produces standardised FHIR R4 resources as action outputs. The adaptor is NOT a pass-through proxy; it actively transforms, enriches, and resolves every resource before forwarding to OpenMRS.
 
-### 2.1 Beckn Entry
+### 2.1 Sygnal Entry (CCE care alerts)
 
-> **Status:** Built (demo), off by default. Full design: [beckn-integration.md](beckn-integration.md).
+> **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
 
-With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the adaptor gets two more entry points, both fed by the `openmrs-onix` adapter containers:
+With `OPENMRS_RECEIVER_BECKN_ENABLED=true` (the default), the adaptor gets one more entry point, fed by the `onix-openmrs` adapter container:
 
 ```
-  Spice ══► openmrs-onix (onix-bpp) ── POST /beckn/bpp-webhook/update ──► Bundle ──► existing write path ──► OpenMRS
-                    ▲                                                        │
-                    └──────────── on_update ACCEPTED (after an Ack) ─────────┘
-
-  HIE / Spice ══► openmrs-onix (onix-bap) ── POST /beckn/bap-webhook/{on_update|on_status} ──► log only
+  cce-beckn-service ══ sygnal/signal/emit ══► onix-openmrs (/sygnal/receiver/) ── POST /sygnal/signal/emit ──► Ack / Nack
+                                                                                          │
+                                                                    (after the Ack) ──────┴──► OpenMRS notification (/alert)
 ```
 
-- A referral from Spice arrives as a Beckn `update`. The adaptor builds a FHIR `Bundle` from the message (`Patient` first) and hands it to `InboundProcessingService`, the same write path as `/api/v1/openmrs/fhir`.
-- The adaptor answers in `cce-beckn-service`'s `Ack` / `Nack` body, with the request's `messageId`. Codes: `BAD_REQUEST`, `NOT_SUPPORTED`, `REFERRAL_REJECTED` (400) and `UNAVAILABLE` (500, send again). It never talks to CCE.
-- Callbacks (`on_update` from the HIE or Spice, `on_status` from Spice) are logged. Nothing is written into OpenMRS for them. An `on_update` may arrive before the `Ack` or never; nothing depends on it.
-- `onix-bpp` must wait longer than the write path's worst case. onix's default of 5 s is too short.
-- The Beckn paths are under `/beckn/**`, outside the bearer-token filter on `/api/**` (§9.3).
-- The existing `/api/v1/openmrs/fhir` endpoint is unchanged.
+- A CCE care alert arrives as a Sygnal `sygnal/signal/emit`: a `sygnal:Signal` with a `cce:CceCareAlert` box (patient national id, severity, step status, SLA status, FHIR `CommunicationRequest` / `Task`).
+- The adaptor checks the action, `receiverId` (its own id), `senderId` (CCE's id) and the types, and answers at once: 200 `Ack`, or a `Nack` with a canonical Beckn error code (400 for the sender's error, 5xx for "send again later"). There are no callbacks.
+- On another thread it raises an OpenMRS notification, de-duplicated by the intelligence delivery id. Nothing else is written into OpenMRS.
+- The path is under `/sygnal/**`, outside the bearer-token filter on `/api/**` (§9.3).
+- The existing `/api/v1/openmrs/fhir` endpoint is unchanged. The earlier Beckn endpoints and the Spice referral flows over Beckn are removed.
 
 ---
 
@@ -859,7 +856,7 @@ Inbound request arrives
   └── Missing header → 401 Unauthorized
 ```
 
-> **Beckn paths.** The filter only checks paths that start with `/api/`, and `SecurityConfig` also permits `/beckn/**` explicitly. The Beckn endpoints live under `/beckn/**` on purpose: onix forwards the Beckn `Authorization: Signature …` header, which would fail this check with 401. On `/beckn/**` the Beckn signature is checked by `openmrs-onix` instead. See [beckn-integration.md §6](beckn-integration.md#6-security-why-beckn).
+> **Sygnal path.** The filter only checks paths that start with `/api/`, and `SecurityConfig` also permits `/sygnal/**` explicitly. The Sygnal endpoint lives under `/sygnal/**` on purpose: onix forwards the `Authorization: Signature …` header, which would fail this check with 401. On `/sygnal/**` the signature is checked by `onix-openmrs` instead. See [sygnal-integration.md §5](sygnal-integration.md#5-security-why-sygnal).
 
 ### 9.4 Outbound Authentication (Adaptor → OpenMRS)
 

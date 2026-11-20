@@ -8,8 +8,8 @@ import java.util.Map;
 import java.util.StringJoiner;
 
 /**
- * One log line per Beckn message: each one received and each {@code on_update} sent
- * (docs/beckn-integration.md §9.2). Never logs a message body, a FHIR resource or a patient id.
+ * One log line per Sygnal message received (docs/sygnal-integration.md §8.2). Never logs a message
+ * body, a FHIR resource or a patient id.
  */
 public final class BecknMessageLog {
 
@@ -27,20 +27,13 @@ public final class BecknMessageLog {
         return new BecknMessageLog("IN", action);
     }
 
-    public static BecknMessageLog out(String action) {
-        return new BecknMessageLog("OUT", action);
-    }
-
     public BecknMessageLog peer(String v) { return put("peer", v); }
-    public BecknMessageLog contractId(String v) { return put("contractId", v); }
     public BecknMessageLog transactionId(String v) { return put("transactionId", v); }
     public BecknMessageLog messageId(String v) { return put("messageId", v); }
-    public BecknMessageLog performanceId(String v) { return put("performanceId", v); }
+    public BecknMessageLog signalId(String v) { return put("signalId", v); }
     public BecknMessageLog resourceType(String v) { return put("resourceType", v); }
-    public BecknMessageLog referralId(String v) { return put("referralId", v); }
     public BecknMessageLog result(String v) { return put("result", v); }
     public BecknMessageLog code(String v) { return put("code", v); }
-    public BecknMessageLog httpStatus(int v) { return v > 0 ? put("httpStatus", Integer.toString(v)) : this; }
     public BecknMessageLog error(String v) { return put("error", v); }
 
     private BecknMessageLog put(String key, String value) {
@@ -52,7 +45,7 @@ public final class BecknMessageLog {
 
     /** Writes the line: WARN for a failure, INFO otherwise. */
     public void write() {
-        StringJoiner line = new StringJoiner(" ", "beckn ", "");
+        StringJoiner line = new StringJoiner(" ", "sygnal ", "");
         fields.forEach((k, v) -> {
             String c = clean(String.valueOf(v));
             line.add(k + "=" + (c.indexOf(' ') >= 0 ? "\"" + c + "\"" : c));
