@@ -24,7 +24,7 @@ public class SygnalController {
         this.signals = signals;
     }
 
-    /** A CCE care alert. */
+    /** A CCE care alert: the {@code message} of the request is the {@code cce:CceCareAlert} itself. */
     @PostMapping(value = "/sygnal/signal/emit", produces = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<JsonNode> signalEmit(@RequestBody(required = false) String body) {
         return signals.handle(body);

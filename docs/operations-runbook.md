@@ -165,7 +165,7 @@ docker compose logs openmrs-cce-receiver-adaptor | grep 'sygnal direction='
 | Every alert gets `Nack` `CTX_INVALID_FIELD` "context.receiverId …" | CCE addresses OpenMRS with another subscriber id | Align `OPENMRS_RECEIVER_BECKN_SELF_ID` with `cce-beckn-service`'s HMIS list and the registry |
 | Every alert gets `Nack` `CTX_INVALID_FIELD` "context.senderId …" | CCE's subscriber id differs from `receiver.beckn.cce.id` | Align `OPENMRS_RECEIVER_BECKN_CCE_ID` with CCE's registered id |
 | `Nack` `CTX_ACTION_MISMATCH` | onix routed another action to this path | Only `sygnal/signal/emit` goes to the adaptor from `/sygnal/receiver/` |
-| `Nack` `SCH_TYPE_NOT_SUPPORTED` | Not a `sygnal:Signal` with a `cce:CceCareAlert` | Check the sender against the CCE Sygnal profile |
+| `Nack` `SCH_TYPE_NOT_SUPPORTED` "message.@type must be cce:CceCareAlert" | The `message` is not a `cce:CceCareAlert`. Most likely the sender still sends the `sygnal:Signal` shape used before 2026-11-23 | Upgrade `cce-beckn-service` to the CCE Sygnal profile v2.0 |
 | CCE alerts arrive as `on_status` on `/beckn/bap-webhook` and nothing is notified | CCE still on the old Beckn version | Upgrade `cce-beckn-service`; alerts must come as `sygnal/signal/emit` |
 | `Nack` (503) `NET_INTERNAL_ERROR` "queue is full", `openmrs_beckn_care_alerts_total{result="dropped"}` rises | More alerts than the notification threads can raise (OpenMRS slow) | Check OpenMRS health. CCE may send again |
 | Alert acked but no notification; `openmrs_beckn_care_alerts_total{result="not-notified"}` rises | No recipients, notifications disabled, or OpenMRS `/alert` failed | See the notification rows above (`OPENMRS_NOTIFICATION_*`) |

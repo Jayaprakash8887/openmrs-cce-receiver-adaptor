@@ -16,11 +16,11 @@ import java.util.StringJoiner;
 /**
  * Turns a CCE care alert into an OpenMRS notification (docs/sygnal-integration.md §4).
  *
- * <p>CCE sends an alert as a {@code sygnal/signal/emit}: a {@code sygnal:Signal} whose
- * {@code signalAttributes} is a {@code cce:CceCareAlert} box with the patient's national id
- * ({@code patientId}), the CCE severity, the step's status, the SLA status (optional) and the FHIR
- * {@code CommunicationRequest} or {@code Task} the intelligence service built. The notification goes
- * through the same {@code /alert} endpoint and to the same recipients as "New referral received".
+ * <p>CCE sends an alert as a {@code sygnal/signal/emit} whose {@code message} is the
+ * {@code cce:CceCareAlert} itself: the patient's national id ({@code patientId}), the CCE severity,
+ * the step's status, the SLA status (optional) and the FHIR {@code CommunicationRequest} or
+ * {@code Task} the intelligence service built. The notification goes through the same {@code /alert}
+ * endpoint and to the same recipients as "New referral received".
  *
  * <ul>
  *   <li>title — the alert text: {@code payload[0].contentString}, or {@code Task.description}</li>
@@ -30,7 +30,7 @@ import java.util.StringJoiner;
  *   <li>severity — LOW → INFO, MEDIUM / HIGH → WARNING, CRITICAL → CRITICAL</li>
  * </ul>
  *
- * A repeated alert (same delivery id) is not notified twice. Never throws: the signal has already
+ * A repeated alert (same delivery id) is not notified twice. Never throws: the alert has already
  * been acknowledged when this runs.
  */
 @Component
@@ -56,28 +56,30 @@ public class CareAlertNotifier {
         this.openMrs = openMrs;
     }
 
-    /** Whether a {@code sygnal:Signal} ({@code message} of the request) carries a CCE care alert. */
-    public static boolean isCareAlert(JsonNode signal) {
-        return signal != null && ALERT_TYPE.equals(Json.text(signal.path("signalAttributes"), "@type"));
+    /** Whether the {@code message} of the request is a CCE care alert. */
+    public static boolean isCareAlert(JsonNode message) {
+        return message != null && ALERT_TYPE.equals(Json.text(message, "@type"));
     }
 
     /**
-     * Notifies the alert in {@code signal}, the {@code message} of a {@code sygnal/signal/emit}.
-     * Returns false when nothing was sent (logged).
+     * Notifies the alert of {@code request}, a whole {@code sygnal/signal/emit}: its {@code message} is
+     * the alert, and its {@code context.messageId} the delivery id. Returns false when nothing was
+     * sent (logged).
      */
-    public boolean notify(JsonNode signal) {
+    public boolean notify(JsonNode request) {
         try {
-            JsonNode alert = signal.path("signalAttributes");
+            JsonNode alert = request.path("message");
             JsonNode resource = alert.path("resource");
+            String deliveryId = deliveryId(request.path("context"), resource);
             String patientId = Json.text(alert, "patientId");
             if (patientId.isBlank()) {
-                LOG.warn("CCE alert {} has no patientId — not notified", deliveryId(signal, resource));
+                LOG.warn("CCE alert {} has no patientId — not notified", deliveryId);
                 return false;
             }
 
             List<String> to = recipients.resolveForReferral(resource);
             if (to.isEmpty()) {
-                LOG.info("No notification recipients for CCE alert {}", deliveryId(signal, resource));
+                LOG.info("No notification recipients for CCE alert {}", deliveryId);
                 return false;
             }
 
@@ -90,7 +92,7 @@ public class CareAlertNotifier {
                             body(alert, resource, patientId, patientUuid != null),
                             patientUuid == null ? null : "/openmrs/spa/patient/" + patientUuid + "/chart"),
                     to,
-                    "CceCareAlert:" + deliveryId(signal, resource));
+                    "CceCareAlert:" + deliveryId);
             return true;
         } catch (RuntimeException e) {
             LOG.warn("CCE alert could not be notified: {}", e.toString());
@@ -140,16 +142,16 @@ public class CareAlertNotifier {
     }
 
     /**
-     * The intelligence delivery id: the resource identifier, else the signal id ({@code message.id},
-     * which CCE sets to the delivery id, as it does {@code context.messageId}).
+     * The intelligence delivery id: the resource identifier, else {@code context.messageId}, which CCE
+     * sets to the delivery id (a repeated alert carries the same one).
      */
-    static String deliveryId(JsonNode signal, JsonNode resource) {
+    static String deliveryId(JsonNode context, JsonNode resource) {
         for (JsonNode id : resource.path("identifier")) {
             if (DELIVERY_ID_SYSTEM.equals(Json.text(id, "system")) && !Json.text(id, "value").isBlank()) {
                 return Json.text(id, "value");
             }
         }
-        return Json.text(signal, "id");
+        return Json.text(context, "messageId");
     }
 
     private static String extension(JsonNode resource, String urlSuffix) {

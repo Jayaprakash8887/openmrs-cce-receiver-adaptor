@@ -17,13 +17,14 @@ import java.util.concurrent.RejectedExecutionException;
 /**
  * Handles {@code POST /sygnal/signal/emit}: a CCE care alert (docs/sygnal-integration.md §4).
  *
- * <p>The signal is checked, answered synchronously, and its OpenMRS notification is raised afterwards
- * on {@link BecknConfig#CARE_ALERT_EXECUTOR}. Sygnal has no callback: the HTTP answer is the whole
+ * <p>The {@code message} of the request is the care alert itself, a {@code cce:CceCareAlert}. It is
+ * checked, answered synchronously, and its OpenMRS notification is raised afterwards on
+ * {@link BecknConfig#CARE_ALERT_EXECUTOR}. Sygnal has no callback: the HTTP answer is the whole
  * result.
  * <ul>
  *   <li>200 {@code Ack} with the request's {@code messageId}: the alert is accepted. A repeat of an
  *       alert already notified is accepted too, and not notified twice.</li>
- *   <li>400 {@code Nack}: the signal is wrong (action, receiver, sender, types, a missing field).
+ *   <li>400 {@code Nack}: the request is wrong (action, receiver, sender, type, a missing field).
  *       Sending it again unchanged will not help.</li>
  *   <li>5xx {@code Nack}: a problem here (the notification queue is full, or an error). CCE may send
  *       it again later.</li>
@@ -35,7 +36,6 @@ import java.util.concurrent.RejectedExecutionException;
 public class SignalEmitService {
 
     public static final String ACTION = "sygnal/signal/emit";
-    static final String SIGNAL_TYPE = "sygnal:Signal";
 
     private static final Logger LOG = LoggerFactory.getLogger(SignalEmitService.class);
 
@@ -67,8 +67,8 @@ public class SignalEmitService {
                 throw BecknException.badRequest(ErrorCodes.SCH_INVALID_JSON, "The body is not a JSON object");
             }
             checkContext(context);
-            JsonNode signal = checkSignal(body.path("message"));
-            return accept(context, signal);
+            checkAlert(body.path("message"));
+            return accept(body);
         } catch (BecknException e) {
             return nack(context, e);
         } catch (RuntimeException e) {
@@ -111,49 +111,43 @@ public class SignalEmitService {
         }
     }
 
-    /** Returns {@code message}, the {@code sygnal:Signal}, once it is known to carry a care alert. */
-    private static JsonNode checkSignal(JsonNode signal) {
-        if (!signal.isObject()) {
+    /**
+     * {@code message} must be a {@code cce:CceCareAlert} with a patient and a FHIR resource. Any other
+     * type is refused, the earlier {@code sygnal:Signal} included.
+     */
+    private static void checkAlert(JsonNode alert) {
+        if (!alert.isObject()) {
             throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING, "message is missing");
         }
-        if (!SIGNAL_TYPE.equals(Json.text(signal, "@type"))) {
-            throw BecknException.badRequest(ErrorCodes.SCH_TYPE_NOT_SUPPORTED, "message.@type must be " + SIGNAL_TYPE);
-        }
-        if (Json.text(signal, "id").isBlank()) {
-            throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING, "message.id is missing");
-        }
-        if (!CareAlertNotifier.isCareAlert(signal)) {
+        if (!CareAlertNotifier.isCareAlert(alert)) {
             throw BecknException.badRequest(ErrorCodes.SCH_TYPE_NOT_SUPPORTED,
-                    "message.signalAttributes.@type must be " + CareAlertNotifier.ALERT_TYPE);
+                    "message.@type must be " + CareAlertNotifier.ALERT_TYPE);
         }
-        JsonNode alert = signal.path("signalAttributes");
         if (Json.text(alert, "patientId").isBlank()) {
-            throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING,
-                    "message.signalAttributes.patientId is missing");
+            throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING, "message.patientId is missing");
         }
         if (Json.text(alert.path("resource"), "resourceType").isBlank()) {
             throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING,
-                    "message.signalAttributes.resource must be a FHIR resource with a resourceType");
+                    "message.resource must be a FHIR resource with a resourceType");
         }
-        return signal;
     }
 
     /** Hands the notification to the executor, then answers {@code Ack}. */
-    private ResponseEntity<JsonNode> accept(JsonNode context, JsonNode signal) {
-        JsonNode alert = signal.path("signalAttributes");
+    private ResponseEntity<JsonNode> accept(JsonNode request) {
+        JsonNode context = request.path("context");
+        JsonNode alert = request.path("message");
         String status = Json.text(alert, "stepStatus");
         String sla = Json.text(alert, "slaStatus");
         BecknMessageLog line = log(context)
-                .signalId(Json.text(signal, "id"))
                 .resourceType(Json.text(alert.path("resource"), "resourceType"))
                 .code(Json.text(alert, "severity") + (status.isBlank() ? "" : "/" + status)
                         + (sla.isBlank() ? "" : "/" + sla));
         try {
-            executor.execute(() -> metrics.careAlert(careAlerts.notify(signal) ? "notified" : "not-notified"));
+            executor.execute(() -> metrics.careAlert(careAlerts.notify(request) ? "notified" : "not-notified"));
         } catch (RejectedExecutionException e) {
             metrics.careAlert("dropped");
             throw new BecknException(HttpStatus.SERVICE_UNAVAILABLE, ErrorCodes.NET_INTERNAL_ERROR,
-                    "The notification queue is full. Send the signal again later.");
+                    "The notification queue is full. Send the alert again later.");
         }
         line.result("ACK").write();
         metrics.received(Json.text(context, "senderId"), ACTION, "ack");

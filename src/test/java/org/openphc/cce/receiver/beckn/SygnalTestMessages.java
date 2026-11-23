@@ -9,7 +9,7 @@ public final class SygnalTestMessages {
     public static final String SELF_ID = "bap.openmrs.nextsteps.mdtlabs.org";
     public static final String CCE_ID = "bpp.cce.nextsteps.mdtlabs.org";
     public static final String TRANSACTION_ID = "a41f6b2c-9d3e-4a7b-8c1d-2e3f4a5b6c7d";
-    /** The intelligence delivery id: CCE uses it as both context.messageId and message.id. */
+    /** The intelligence delivery id: CCE uses it as context.messageId. */
     public static final String DELIVERY_ID = "b2c3d4e5-0001-4000-b000-000000000001";
     public static final String PATIENT_ID = "260225-0002-5501";
 
@@ -29,23 +29,32 @@ public final class SygnalTestMessages {
     private SygnalTestMessages() {
     }
 
-    /** The {@code sygnal:Signal} ({@code message}) of the alert. */
-    public static String signal() {
+    /** The {@code message} of the alert: the {@code cce:CceCareAlert} itself. */
+    public static String careAlert() {
+        return """
+                {"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
+                 "@type":"cce:CceCareAlert","patientId":"%s","severity":"HIGH","stepStatus":"not-started",
+                 "slaStatus":"overdue","fhirVersion":"4.0.1","resource":%s}"""
+                .formatted(PATIENT_ID, COMMUNICATION_REQUEST);
+    }
+
+    /**
+     * The {@code message} as it was before 2026-11-23: a {@code sygnal:Signal} with the alert in its
+     * {@code signalAttributes}. It is refused now.
+     */
+    public static String oldSignal() {
         return """
                 {"@type":"sygnal:Signal","id":"%s","signalType":"SLA_BREACH",
                  "target":{"id":"%s","role":"PROVIDER"},"severity":"WARNING",
                  "basis":"CCE care step status: not-started, SLA status: overdue",
                  "issuedAt":"2026-11-20T10:00:00.123Z",
-                 "signalAttributes":{
-                   "@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
-                   "@type":"cce:CceCareAlert","patientId":"%s","severity":"HIGH","stepStatus":"not-started",
-                   "slaStatus":"overdue","fhirVersion":"4.0.1","resource":%s}}"""
-                .formatted(DELIVERY_ID, SELF_ID, PATIENT_ID, COMMUNICATION_REQUEST);
+                 "signalAttributes":%s}"""
+                .formatted(DELIVERY_ID, SELF_ID, careAlert());
     }
 
     /** The whole {@code sygnal/signal/emit} body. */
     public static String signalEmit() {
-        return signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, signal());
+        return signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, careAlert());
     }
 
     public static String signalEmit(String action, String senderId, String receiverId, String message) {

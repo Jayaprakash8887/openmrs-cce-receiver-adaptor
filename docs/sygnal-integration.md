@@ -1,9 +1,19 @@
 # Sygnal Integration — OpenMRS CCE Receiver Adaptor
 
 **Status:** Built for the demo. On by default on this branch (`OPENMRS_RECEIVER_BECKN_ENABLED=true`); set `OPENMRS_RECEIVER_BECKN_ENABLED=false` to switch it off.
-**Contract:** the CCE profile of Sygnal, `cce-beckn-service/schema/sygnal-profile/v1.0/cce-sygnal-apis.yaml`. The sender is `cce-beckn-service` (`MessageFactory#signalEmit`).
+**Contract:** the CCE profile of Sygnal, `cce-beckn-service/schema/sygnal-profile/v2.0/cce-sygnal-apis.yaml`. The sender is `cce-beckn-service` (`MessageFactory#signalEmit`).
 
 The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its care alerts there, and the receiver raises them as OpenMRS notifications. It is an extra door into OpenMRS, not a replacement: the existing `POST /api/v1/openmrs/fhir` endpoint is unchanged, and with `OPENMRS_RECEIVER_BECKN_ENABLED=false` the receiver behaves exactly as before Beckn.
+
+> **Change 2026-11-23: payload types.** The `message` of `sygnal/signal/emit` is now the care alert itself, a `cce:CceCareAlert` (§3.1). Before, it was a `sygnal:Signal` with the alert in a `signalAttributes` bag; that shape is refused now (400 `SCH_TYPE_NOT_SUPPORTED`). Gone from the message: `"@type": "sygnal:Signal"`, `id`, `signalType`, `target`, the Sygnal `severity` (`INFO` / `WARNING` / `CRITICAL`), `basis`, `issuedAt` and `signalAttributes`. The delivery id is `context.messageId`. Everything else is unchanged: the action name and path, the Sygnal `context`, the `Ack` / `Nack` bodies and codes, no callbacks, the onix routing, the ids, and the Spice referral flows.
+>
+> The reasons come from the other Sygnal action, `sygnal/event/report`, whose payload changed on the same day from `sygnal:CoordinationEvent` to `cce:CceClinicalEvent`:
+>
+> 1. `sygnal:CoordinationEvent` has no place for a FHIR resource.
+> 2. It is closed (`additionalProperties: false`), so a FHIR resource cannot be added as an extra field.
+> 3. `cce:CceClinicalEvent` cannot extend it without a change to `sygnal:CoordinationEvent` itself: a closed base refuses the fields of a type that extends it.
+>
+> `sygnal:Signal` is replaced the same way, to keep the two messages alike.
 
 Only the CCE care-alert leg uses Sygnal. It replaces the earlier Beckn `on_status` care alert on `/beckn/bap-webhook`. The Spice ↔ OpenMRS referral flows (`/beckn/bpp-webhook/{update,select,init,confirm,status}`, the callbacks to Spice, and Spice's `on_update` / `on_status` on `/beckn/bap-webhook`) stay standard Beckn and are unchanged: see [beckn-integration.md](beckn-integration.md).
 
@@ -66,31 +76,22 @@ The body is exactly what `cce-beckn-service` builds:
     "version": "2.0.0", "action": "sygnal/signal/emit", "networkId": "<network id>",
     "senderId": "bpp.cce.nextsteps.mdtlabs.org", "receiverId": "bap.openmrs.nextsteps.mdtlabs.org",
     "receiverUri": "https://<openmrs public host>/sygnal/receiver",
-    "transactionId": "<uuid, new per signal>", "messageId": "<delivery id>", "timestamp": "2026-11-20T10:00:00.123Z"
+    "transactionId": "<uuid, new per alert>", "messageId": "<delivery id>", "timestamp": "2026-11-20T10:00:00.123Z"
   },
   "message": {
-    "@type": "sygnal:Signal",
-    "id": "<delivery id>",
-    "signalType": "SLA_BREACH",
-    "target": { "id": "bap.openmrs.nextsteps.mdtlabs.org", "role": "PROVIDER" },
-    "severity": "WARNING",
-    "basis": "CCE care step status: not-started, SLA status: overdue",
-    "issuedAt": "2026-11-20T10:00:00.123Z",
-    "signalAttributes": {
-      "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
-      "@type": "cce:CceCareAlert",
-      "patientId": "260225-0002-5501",
-      "severity": "HIGH",
-      "stepStatus": "not-started",
-      "slaStatus": "overdue",
-      "fhirVersion": "4.0.1",
-      "resource": { "resourceType": "CommunicationRequest", "...": "..." }
-    }
+    "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
+    "@type": "cce:CceCareAlert",
+    "patientId": "260225-0002-5501",
+    "severity": "HIGH",
+    "stepStatus": "not-started",
+    "slaStatus": "overdue",
+    "fhirVersion": "4.0.1",
+    "resource": { "resourceType": "CommunicationRequest", "...": "..." }
   }
 }
 ```
 
-`context.messageId` and `message.id` are both the intelligence service's delivery id. A repeated alert carries the same id. `message.severity` is Sygnal's three-level mapping; the receiver uses the CCE severity in `signalAttributes`.
+The `message` is the care alert itself (`CceCareAlert` v1.0, §3.3). `context.messageId` is the intelligence service's delivery id. A repeated alert carries the same `messageId`.
 
 ### 3.2 Checks
 
@@ -105,18 +106,22 @@ In this order. The first one broken gives a `Nack` (400) with the code shown; no
 | `context.senderId` is present / is `receiver.beckn.cce.id` | `CTX_MISSING_FIELD` / `CTX_INVALID_FIELD` |
 | `context.messageId` is present | `CTX_MISSING_FIELD` |
 | `message` is present | `SCH_REQUIRED_FIELD_MISSING` |
-| `message.@type` is `sygnal:Signal` | `SCH_TYPE_NOT_SUPPORTED` |
-| `message.id` is present | `SCH_REQUIRED_FIELD_MISSING` |
-| `message.signalAttributes.@type` is `cce:CceCareAlert` | `SCH_TYPE_NOT_SUPPORTED` |
-| `signalAttributes.patientId` is present | `SCH_REQUIRED_FIELD_MISSING` |
-| `signalAttributes.resource` has a `resourceType` | `SCH_REQUIRED_FIELD_MISSING` |
+| `message.@type` is `cce:CceCareAlert` | `SCH_TYPE_NOT_SUPPORTED` |
+| `message.patientId` is present | `SCH_REQUIRED_FIELD_MISSING` |
+| `message.resource` has a `resourceType` | `SCH_REQUIRED_FIELD_MISSING` |
 
-onix has already validated the schema, so in normal operation only the id checks can fail (a misrouted signal, or the wrong `OPENMRS_RECEIVER_BECKN_*_ID`).
+Any other `message.@type` is refused, the earlier `sygnal:Signal` included. The fields of a `sygnal:Signal` (`id`, `signalType`, `target`, its `severity`, `basis`, `issuedAt`, `signalAttributes`) are not read.
 
-### 3.3 The `CceCareAlert` box
+onix has already validated the schema, so in normal operation only the id checks can fail (a misrouted signal, or the wrong `OPENMRS_RECEIVER_BECKN_*_ID`), or the type check while a sender still uses the old shape.
+
+### 3.3 The `CceCareAlert` message
+
+The fields of `message`. The schema is closed: no other field is accepted (checked by onix, not by the receiver).
 
 | Field | Required | Use |
 |---|---|---|
+| `@context` | Yes | The `CceCareAlert` v1.0 JSON-LD context. Not read by the receiver |
+| `@type` | Yes | `cce:CceCareAlert` |
 | `patientId` | Yes | The patient's national id (the id CCE uses) |
 | `severity` | Yes | `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 | `stepStatus` | Yes | The step's status, e.g. `not-started`, `completed` |
@@ -148,7 +153,7 @@ The same shape as `cce-beckn-service`. Both keep the request's `context.messageI
 
 | HTTP | Code | When | What the sender should do |
 |---|---|---|---|
-| 400 | `CTX_*`, `SCH_*` (§3.2) | The signal is wrong | Fix it. Sending it again unchanged will not help |
+| 400 | `CTX_*`, `SCH_*` (§3.2) | The request is wrong | Fix it. Sending it again unchanged will not help |
 | 503 | `NET_INTERNAL_ERROR` | The notification queue is full | Send again later |
 | 500 | `NET_INTERNAL_ERROR` | An unexpected error here | Send again later |
 
@@ -156,17 +161,17 @@ The same shape as `cce-beckn-service`. Both keep the request's `context.messageI
 
 ## 4. CCE Care Alerts
 
-After a valid signal, the receiver hands the alert to the `careAlertExecutor` thread pool and answers `Ack` at once. On that thread it raises an OpenMRS notification through the same `/alert` endpoint and to the same recipients as "New referral received" (`openmrs.notification.*`):
+After a valid request, the receiver hands the alert to the `careAlertExecutor` thread pool and answers `Ack` at once. On that thread it raises an OpenMRS notification through the same `/alert` endpoint and to the same recipients as "New referral received" (`openmrs.notification.*`):
 
 | Notification | From the alert |
 |---|---|
 | `type` | `CCE_ALERT` |
-| `severity` | `signalAttributes.severity`: `LOW` → `INFO`, `MEDIUM` / `HIGH` → `WARNING`, `CRITICAL` → `CRITICAL` |
+| `severity` | `message.severity`: `LOW` → `INFO`, `MEDIUM` / `HIGH` → `WARNING`, `CRITICAL` → `CRITICAL` |
 | `title` | The alert text (cut to 120 characters), else "Care coordination alert" |
 | `body` | `Patient national-id <patientId> · Step status: <stepStatus> · SLA status: <slaStatus> · Step: <protocol step>`; parts without a value are left out; "(not registered in OpenMRS)" after the id when no OpenMRS patient has it |
 | `link` | The patient's chart, when a patient has that national id |
 
-**De-duplication.** The notification is keyed `CceCareAlert:<delivery id>`, where the delivery id is the resource's `intelligence-delivery-id` identifier, else `message.id` (which CCE sets to the delivery id; a `Task` has no identifier). The notification client drops a second notification with the same key within `OPENMRS_NOTIFICATION_DEDUPE_TTL_HOURS` (24 h by default). A repeated signal is therefore answered `Ack` and not notified twice.
+**De-duplication.** The notification is keyed `CceCareAlert:<delivery id>`, where the delivery id is the resource's `intelligence-delivery-id` identifier, else `context.messageId` (which CCE sets to the delivery id; a `Task` has no identifier). The notification client drops a second notification with the same key within `OPENMRS_NOTIFICATION_DEDUPE_TTL_HOURS` (24 h by default). A repeated alert is therefore answered `Ack` and not notified twice.
 
 A failure to notify (no recipients, OpenMRS down) is logged and counted (`openmrs_beckn_care_alerts_total{result="not-notified"}`) but cannot change the answer, which was already sent.
 
@@ -224,7 +229,7 @@ These two ids sit in the same `receiver.beckn` block as the Spice referral setti
 
 CCE addresses OpenMRS with `context.receiverUri` = OpenMRS's public onix receiver base (e.g. `https://openmrs.example.org/sygnal/receiver`); `onix-cce` appends the action. That URI is a setting of `cce-beckn-service` (its HMIS list), not of this service.
 
-**Schema.** onix validates `signalAttributes` against the `CceCareAlert` schema from `cce-beckn-service`'s `schema/` folder (default base URL `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`). Use the same base URL in every onix.
+**Schema.** onix validates `message` against the `CceCareAlert` schema from `cce-beckn-service`'s `schema/` folder: `sygnal-profile/v2.0/cce-sygnal-apis.yaml` and `CceCareAlert/v1.0/attributes.yaml` (default base URL `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`). Use the same base URL and the same profile version (v2.0; v1.0 is deleted) in every onix.
 
 **Wait.** The receiver answers before the notification is raised, so the answer is fast; onix's default wait is enough.
 
@@ -265,14 +270,14 @@ Exposed at `GET /actuator/prometheus` with the prefix `openmrs_beckn_`. Label va
 One line per signal received. Logger `org.openphc.cce.receiver.beckn.messages` (shared with the Beckn lines, which start with `beckn`), in `key=value` form, WARN for a `Nack`:
 
 ```
-sygnal direction=IN action=sygnal/signal/emit peer=bpp.cce.nextsteps.mdtlabs.org transactionId=a41f… messageId=b2c3… signalId=b2c3… resourceType=CommunicationRequest code=HIGH/not-started/overdue result=ACK
+sygnal direction=IN action=sygnal/signal/emit peer=bpp.cce.nextsteps.mdtlabs.org transactionId=a41f… messageId=b2c3… resourceType=CommunicationRequest code=HIGH/not-started/overdue result=ACK
 sygnal direction=IN action=sygnal/signal/emit peer=bpp.cce.nextsteps.mdtlabs.org transactionId=a41f… messageId=b2c3… result=NACK code=CTX_INVALID_FIELD error="context.receiverId is …"
 ```
 
 | Field | Meaning |
 |---|---|
 | `peer` | `context.senderId` |
-| `transactionId`, `messageId`, `signalId` | ids from the message |
+| `transactionId`, `messageId` | ids from `context`; `messageId` is the delivery id |
 | `resourceType` | `CommunicationRequest` or `Task` |
 | `code` | On `ACK`: severity / step status / SLA status. On `NACK`: the error code |
 | `result` | `ACK` or `NACK` |
@@ -289,6 +294,7 @@ Never logged: message bodies, the FHIR resource, the patient id.
 | Acting on an alert | Not built: the notification only informs. No task or order is opened |
 | Alert after a full queue | Answered 503 `Nack`. The contract treats 5xx as "send again"; check that the sender does (see `cce-beckn-service` `AdapterResult#isPermanentRefusal`) |
 | Old CCE `on_status` alerts | An `on_status` on `/beckn/bap-webhook` carrying a `cce:CceCareAlert` is logged and acked as a plain callback; no notification |
+| Old `sygnal:Signal` alerts | A `sygnal/signal/emit` whose `message` is a `sygnal:Signal` is refused: 400 `Nack` `SCH_TYPE_NOT_SUPPORTED`; no notification. `cce-beckn-service` and every onix must be on profile v2.0 |
 | Spice referrals | Unchanged standard Beckn ([beckn-integration.md](beckn-integration.md)) |
 
 ## 10. Related Documents

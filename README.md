@@ -176,7 +176,7 @@ Built for the demo, and on by default on the `demo-beckn` branch (`OPENMRS_RECEI
 
 ### Sygnal (CCE care alerts)
 
-CCE (`cce-beckn-service`) sends its care alerts as Sygnal `sygnal/signal/emit`, through `onix-openmrs`, to `POST /sygnal/signal/emit` (same switch, `OPENMRS_RECEIVER_BECKN_ENABLED`). The adaptor checks the sender (`OPENMRS_RECEIVER_BECKN_CCE_ID`, default `bpp.cce.nextsteps.mdtlabs.org`) and receiver (`OPENMRS_RECEIVER_BECKN_SELF_ID`, default `bap.openmrs.nextsteps.mdtlabs.org`), answers `Ack` / `Nack` at once and raises an OpenMRS notification afterwards. CCE alerts no longer come as a Beckn `on_status`; the Spice referral flows above are unchanged. See [docs/sygnal-integration.md](docs/sygnal-integration.md).
+CCE (`cce-beckn-service`) sends its care alerts as Sygnal `sygnal/signal/emit`, through `onix-openmrs`, to `POST /sygnal/signal/emit` (same switch, `OPENMRS_RECEIVER_BECKN_ENABLED`). The `message` is the care alert itself, a `cce:CceCareAlert` (since 2026-11-23; no longer a `sygnal:Signal` with a `signalAttributes` bag). The adaptor checks the sender (`OPENMRS_RECEIVER_BECKN_CCE_ID`, default `bpp.cce.nextsteps.mdtlabs.org`) and receiver (`OPENMRS_RECEIVER_BECKN_SELF_ID`, default `bap.openmrs.nextsteps.mdtlabs.org`), answers `Ack` / `Nack` at once and raises an OpenMRS notification afterwards. CCE alerts no longer come as a Beckn `on_status`; the Spice referral flows above are unchanged. See [docs/sygnal-integration.md](docs/sygnal-integration.md).
 
 ## Project Structure
 
