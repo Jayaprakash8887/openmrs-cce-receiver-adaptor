@@ -53,9 +53,9 @@ With `OPENMRS_RECEIVER_BECKN_ENABLED=true`, the adaptor gets two more entry poin
                                                                     (after the Ack) ──────┴──► OpenMRS notification (/alert)
 ```
 
-- A CCE care alert arrives as a Sygnal `sygnal/signal/emit` (its `message` is the `cce:CceCareAlert` itself), no longer as a Beckn `on_status`.
+- A CCE care alert arrives as a Sygnal `sygnal/signal/emit` (its `message` is a `sygnal:Signal` with the care-alert fields directly on it), no longer as a Beckn `on_status`.
 - The adaptor checks the action, `receiverId` (its own id), `senderId` (CCE's id) and the type, and answers at once: 200 `Ack`, or a `Nack` with a canonical Beckn error code (400 for the sender's error, 5xx for "send again later"). No callbacks.
-- On its own thread pool it raises an OpenMRS notification, de-duplicated by the intelligence delivery id (`context.messageId`).
+- On its own thread pool it raises an OpenMRS notification, de-duplicated by the intelligence delivery id (`message.id`, which is `context.messageId`).
 - The path is under `/sygnal/**`, outside the bearer-token filter on `/api/**` (§9.3).
 
 ---

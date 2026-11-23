@@ -143,68 +143,101 @@ class SignalEmitEndpointTest {
 
     @Test
     void an_alert_for_another_receiver_is_refused() throws Exception {
-        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, "bap.openhim.nextsteps.mdtlabs.org", careAlert())),
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, "bap.openhim.nextsteps.mdtlabs.org", signal())),
                 400, "CTX_INVALID_FIELD");
         verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
     }
 
     @Test
     void an_alert_from_another_sender_is_refused() throws Exception {
-        expectNack(emit(signalEmit(SignalEmitService.ACTION, "bap.openhim.nextsteps.mdtlabs.org", SELF_ID, careAlert())),
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, "bap.openhim.nextsteps.mdtlabs.org", SELF_ID, signal())),
                 400, "CTX_INVALID_FIELD");
         verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
     }
 
     @Test
     void missing_ids_are_refused() throws Exception {
-        expectNack(emit(signalEmit(SignalEmitService.ACTION, "", SELF_ID, careAlert())), 400, "CTX_MISSING_FIELD");
-        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, "", careAlert())), 400, "CTX_MISSING_FIELD");
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, "", SELF_ID, signal())), 400, "CTX_MISSING_FIELD");
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, "", signal())), 400, "CTX_MISSING_FIELD");
     }
 
     @Test
     void another_action_is_refused() throws Exception {
-        expectNack(emit(signalEmit("sygnal/event/report", CCE_ID, SELF_ID, careAlert())), 400, "CTX_ACTION_MISMATCH");
-        expectNack(emit(signalEmit("on_status", CCE_ID, SELF_ID, careAlert())), 400, "CTX_ACTION_MISMATCH");
+        expectNack(emit(signalEmit("sygnal/event/report", CCE_ID, SELF_ID, signal())), 400, "CTX_ACTION_MISMATCH");
+        expectNack(emit(signalEmit("on_status", CCE_ID, SELF_ID, signal())), 400, "CTX_ACTION_MISMATCH");
     }
 
     @Test
-    void the_old_signal_shape_is_refused() throws Exception {
-        // Before 2026-11-23 the message was a sygnal:Signal with the alert in signalAttributes.
-        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, oldSignal())), 400, "SCH_TYPE_NOT_SUPPORTED")
-                .andExpect(jsonPath("$.message.error.message").value("message.@type must be cce:CceCareAlert"));
+    void the_cce_care_alert_message_of_profile_v2_is_refused() throws Exception {
+        // Profile v2.0: the message was the cce:CceCareAlert itself.
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, cceCareAlert())), 400, "SCH_TYPE_NOT_SUPPORTED")
+                .andExpect(jsonPath("$.message.error.message").value("message.@type must be sygnal:Signal"));
+        verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
+    }
+
+    @Test
+    void the_signal_of_profile_v1_with_only_a_signalAttributes_bag_is_refused() throws Exception {
+        // Profile v1.0: a sygnal:Signal with the alert in signalAttributes. The bag is not read, so the
+        // Signal has no patient and no resource.
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, oldSignal())), 400, "SCH_REQUIRED_FIELD_MISSING")
+                .andExpect(jsonPath("$.message.error.message").value("message.patientId is missing"));
         verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
     }
 
     @Test
     void other_types_are_refused() throws Exception {
         expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID,
-                careAlert().replace("\"cce:CceCareAlert\"", "\"cce:CceClinicalEvent\""))), 400, "SCH_TYPE_NOT_SUPPORTED");
+                signal().replace("\"sygnal:Signal\"", "\"sygnal:CoordinationEvent\""))), 400, "SCH_TYPE_NOT_SUPPORTED");
         expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID,
-                careAlert().replace("\"@type\":\"cce:CceCareAlert\",", ""))), 400, "SCH_TYPE_NOT_SUPPORTED");
+                signal().replace("\"@type\":\"sygnal:Signal\",", ""))), 400, "SCH_TYPE_NOT_SUPPORTED");
         verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
     }
 
     @Test
-    void an_alert_without_message_patient_or_resource_is_refused() throws Exception {
+    void a_signal_without_message_id_patient_or_resource_is_refused() throws Exception {
         expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, "null")), 400, "SCH_REQUIRED_FIELD_MISSING");
         expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID,
-                careAlert().replace("\"patientId\":\"" + PATIENT_ID + "\",", ""))), 400, "SCH_REQUIRED_FIELD_MISSING");
+                signal().replace("\"id\":\"" + DELIVERY_ID + "\",", ""))), 400, "SCH_REQUIRED_FIELD_MISSING")
+                .andExpect(jsonPath("$.message.error.message").value("message.id is missing"));
         expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID,
-                careAlert().replace("\"resource\":", "\"notTheResource\":"))), 400, "SCH_REQUIRED_FIELD_MISSING");
+                signal().replace("\"patientId\":\"" + PATIENT_ID + "\",", ""))), 400, "SCH_REQUIRED_FIELD_MISSING")
+                .andExpect(jsonPath("$.message.error.message").value("message.patientId is missing"));
         expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID,
-                careAlert().replace("\"resourceType\":\"CommunicationRequest\",", ""))), 400, "SCH_REQUIRED_FIELD_MISSING");
+                signal().replace("\"resource\":", "\"notTheResource\":"))), 400, "SCH_REQUIRED_FIELD_MISSING");
+        expectNack(emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID,
+                signal().replace("\"resourceType\":\"CommunicationRequest\",", ""))), 400, "SCH_REQUIRED_FIELD_MISSING");
         verify(notifications, after(200).never()).notify(any(), anyList(), anyString());
     }
 
     @Test
-    void a_task_alert_is_deduplicated_on_the_context_message_id() throws Exception {
-        // A Task has no delivery id identifier: the key is context.messageId.
+    void unknown_extra_fields_are_ignored_and_a_signalAttributes_bag_is_not_read() throws Exception {
+        // The Signal is open in the profile. A bag with other values must not win over the Signal's own fields.
+        String extended = signal().replace("\"patientId\":", """
+                "relatesTo":"ref-1","somethingNew":{"a":1},
+                "signalAttributes":{"@type":"cce:CceCareAlert","patientId":"from-the-bag","severity":"CRITICAL"},
+                "patientId":""");
+
+        emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, extended)).andExpect(status().isOk())
+                .andExpect(jsonPath("$.message.status").value("ACK"));
+
+        ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
+        verify(notifications, timeout(3000)).notify(payload.capture(), anyList(), eq("CceCareAlert:" + DELIVERY_ID));
+        assertThat(payload.getValue().severity()).isEqualTo("WARNING");
+        assertThat(payload.getValue().body()).startsWith("Patient national-id " + PATIENT_ID);
+        verify(openMrs, never()).searchByIdentifier("/patient", "from-the-bag");
+    }
+
+    @Test
+    void a_task_alert_is_deduplicated_on_the_signal_id() throws Exception {
+        // A Task has no delivery id identifier: the key is message.id, which is context.messageId.
         String task = """
-                {"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
-                 "@type":"cce:CceCareAlert","patientId":"%s","severity":"CRITICAL","stepStatus":"not-started",
-                 "slaStatus":"missed","fhirVersion":"4.0.1",
+                {"@type":"sygnal:Signal","id":"%s","signalType":"SLA_BREACH",
+                 "target":{"id":"%s","role":"PROVIDER"},"severity":"CRITICAL",
+                 "basis":"CCE care step status: not-started, SLA status: missed",
+                 "issuedAt":"2026-11-20T10:00:00.123Z",
+                 "patientId":"%s","stepStatus":"not-started","slaStatus":"missed","fhirVersion":"4.0.1",
                  "resource":{"resourceType":"Task","status":"requested","intent":"order",
-                   "description":"step anc-visit-2 missed"}}""".formatted(PATIENT_ID);
+                   "description":"step anc-visit-2 missed"}}""".formatted(DELIVERY_ID, SELF_ID, PATIENT_ID);
 
         emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, task)).andExpect(status().isOk());
 

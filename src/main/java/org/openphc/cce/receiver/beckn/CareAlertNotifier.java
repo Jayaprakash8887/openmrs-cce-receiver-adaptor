@@ -16,11 +16,12 @@ import java.util.StringJoiner;
 /**
  * Turns a CCE care alert into an OpenMRS notification (docs/sygnal-integration.md §4).
  *
- * <p>CCE sends an alert as a {@code sygnal/signal/emit} whose {@code message} is the
- * {@code cce:CceCareAlert} itself: the patient's national id ({@code patientId}), the CCE severity,
- * the step's status, the SLA status (optional) and the FHIR {@code CommunicationRequest} or
- * {@code Task} the intelligence service built. The notification goes through the same {@code /alert}
- * endpoint and to the same recipients as "New referral received".
+ * <p>CCE sends an alert as a {@code sygnal/signal/emit} whose {@code message} is a
+ * {@code sygnal:Signal} with the care-alert fields directly on it (the CCE profile of Sygnal, v3.0):
+ * the patient's national id ({@code patientId}), the CCE severity, the step's status, the SLA status
+ * (optional) and the FHIR {@code CommunicationRequest} or {@code Task} the intelligence service
+ * built. The notification goes through the same {@code /alert} endpoint and to the same recipients
+ * as "New referral received".
  *
  * <ul>
  *   <li>title — the alert text: {@code payload[0].contentString}, or {@code Task.description}</li>
@@ -37,7 +38,7 @@ import java.util.StringJoiner;
 @ConditionalOnBecknEnabled
 public class CareAlertNotifier {
 
-    public static final String ALERT_TYPE = "cce:CceCareAlert";
+    public static final String SIGNAL_TYPE = "sygnal:Signal";
     static final String NOTIFICATION_TYPE = "CCE_ALERT";
     static final String PROTOCOL_STEP_EXTENSION = "cce-protocol-step-id";
     static final String DELIVERY_ID_SYSTEM = "http://openphc.org/fhir/intelligence-delivery-id";
@@ -56,21 +57,21 @@ public class CareAlertNotifier {
         this.openMrs = openMrs;
     }
 
-    /** Whether the {@code message} of the request is a CCE care alert. */
-    public static boolean isCareAlert(JsonNode message) {
-        return message != null && ALERT_TYPE.equals(Json.text(message, "@type"));
+    /** Whether the {@code message} of the request is a {@code sygnal:Signal}, the type of a care alert. */
+    public static boolean isSignal(JsonNode message) {
+        return message != null && SIGNAL_TYPE.equals(Json.text(message, "@type"));
     }
 
     /**
      * Notifies the alert of {@code request}, a whole {@code sygnal/signal/emit}: its {@code message} is
-     * the alert, and its {@code context.messageId} the delivery id. Returns false when nothing was
-     * sent (logged).
+     * the Signal with the alert's fields, and {@code message.id} (= {@code context.messageId}) the
+     * delivery id. Returns false when nothing was sent (logged).
      */
     public boolean notify(JsonNode request) {
         try {
             JsonNode alert = request.path("message");
             JsonNode resource = alert.path("resource");
-            String deliveryId = deliveryId(request.path("context"), resource);
+            String deliveryId = deliveryId(request.path("context"), alert, resource);
             String patientId = Json.text(alert, "patientId");
             if (patientId.isBlank()) {
                 LOG.warn("CCE alert {} has no patientId — not notified", deliveryId);
@@ -142,16 +143,18 @@ public class CareAlertNotifier {
     }
 
     /**
-     * The intelligence delivery id: the resource identifier, else {@code context.messageId}, which CCE
-     * sets to the delivery id (a repeated alert carries the same one).
+     * The intelligence delivery id: the resource identifier, else the Signal's id ({@code message.id}),
+     * else {@code context.messageId}. CCE sets all three to the delivery id; a repeated alert carries
+     * the same one.
      */
-    static String deliveryId(JsonNode context, JsonNode resource) {
+    static String deliveryId(JsonNode context, JsonNode signal, JsonNode resource) {
         for (JsonNode id : resource.path("identifier")) {
             if (DELIVERY_ID_SYSTEM.equals(Json.text(id, "system")) && !Json.text(id, "value").isBlank()) {
                 return Json.text(id, "value");
             }
         }
-        return Json.text(context, "messageId");
+        String signalId = Json.text(signal, "id");
+        return signalId.isBlank() ? Json.text(context, "messageId") : signalId;
     }
 
     private static String extension(JsonNode resource, String urlSuffix) {

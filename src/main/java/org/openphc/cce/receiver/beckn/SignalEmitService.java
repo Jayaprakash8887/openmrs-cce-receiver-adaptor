@@ -17,8 +17,10 @@ import java.util.concurrent.RejectedExecutionException;
 /**
  * Handles {@code POST /sygnal/signal/emit}: a CCE care alert (docs/sygnal-integration.md §4).
  *
- * <p>The {@code message} of the request is the care alert itself, a {@code cce:CceCareAlert}. It is
- * checked, answered synchronously, and its OpenMRS notification is raised afterwards on
+ * <p>The {@code message} of the request is a {@code sygnal:Signal} as the CCE profile of Sygnal (v3.0)
+ * extends it: the care-alert fields ({@code patientId}, {@code stepStatus}, {@code slaStatus},
+ * {@code fhirVersion}, {@code resource}) sit directly on the Signal, and {@code severity} is CCE's
+ * level. It is checked, answered synchronously, and its OpenMRS notification is raised afterwards on
  * {@link BecknConfig#CARE_ALERT_EXECUTOR}. Sygnal has no callback: the HTTP answer is the whole
  * result.
  * <ul>
@@ -67,7 +69,7 @@ public class SignalEmitService {
                 throw BecknException.badRequest(ErrorCodes.SCH_INVALID_JSON, "The body is not a JSON object");
             }
             checkContext(context);
-            checkAlert(body.path("message"));
+            checkSignal(body.path("message"));
             return accept(body);
         } catch (BecknException e) {
             return nack(context, e);
@@ -112,21 +114,26 @@ public class SignalEmitService {
     }
 
     /**
-     * {@code message} must be a {@code cce:CceCareAlert} with a patient and a FHIR resource. Any other
-     * type is refused, the earlier {@code sygnal:Signal} included.
+     * {@code message} must be a {@code sygnal:Signal} with an id, a patient and a FHIR resource, all
+     * directly on it. Any other type is refused, the {@code cce:CceCareAlert} of profile v2.0 included.
+     * A Signal of profile v1.0, with the alert in a {@code signalAttributes} bag, has no patient of its
+     * own and is refused for that: the bag is not read. Fields this service does not know are ignored.
      */
-    private static void checkAlert(JsonNode alert) {
-        if (!alert.isObject()) {
+    private static void checkSignal(JsonNode signal) {
+        if (!signal.isObject()) {
             throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING, "message is missing");
         }
-        if (!CareAlertNotifier.isCareAlert(alert)) {
+        if (!CareAlertNotifier.isSignal(signal)) {
             throw BecknException.badRequest(ErrorCodes.SCH_TYPE_NOT_SUPPORTED,
-                    "message.@type must be " + CareAlertNotifier.ALERT_TYPE);
+                    "message.@type must be " + CareAlertNotifier.SIGNAL_TYPE);
         }
-        if (Json.text(alert, "patientId").isBlank()) {
+        if (Json.text(signal, "id").isBlank()) {
+            throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING, "message.id is missing");
+        }
+        if (Json.text(signal, "patientId").isBlank()) {
             throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING, "message.patientId is missing");
         }
-        if (Json.text(alert.path("resource"), "resourceType").isBlank()) {
+        if (Json.text(signal.path("resource"), "resourceType").isBlank()) {
             throw BecknException.badRequest(ErrorCodes.SCH_REQUIRED_FIELD_MISSING,
                     "message.resource must be a FHIR resource with a resourceType");
         }
@@ -135,12 +142,13 @@ public class SignalEmitService {
     /** Hands the notification to the executor, then answers {@code Ack}. */
     private ResponseEntity<JsonNode> accept(JsonNode request) {
         JsonNode context = request.path("context");
-        JsonNode alert = request.path("message");
-        String status = Json.text(alert, "stepStatus");
-        String sla = Json.text(alert, "slaStatus");
+        JsonNode signal = request.path("message");
+        String status = Json.text(signal, "stepStatus");
+        String sla = Json.text(signal, "slaStatus");
         BecknMessageLog line = log(context)
-                .resourceType(Json.text(alert.path("resource"), "resourceType"))
-                .code(Json.text(alert, "severity") + (status.isBlank() ? "" : "/" + status)
+                .signalId(Json.text(signal, "id"))
+                .resourceType(Json.text(signal.path("resource"), "resourceType"))
+                .code(Json.text(signal, "severity") + (status.isBlank() ? "" : "/" + status)
                         + (sla.isBlank() ? "" : "/" + sla));
         try {
             executor.execute(() -> metrics.careAlert(careAlerts.notify(request) ? "notified" : "not-notified"));

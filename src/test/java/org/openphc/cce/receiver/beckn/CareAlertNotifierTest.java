@@ -26,25 +26,33 @@ class CareAlertNotifierTest {
 
     private static final ObjectMapper OM = new ObjectMapper();
 
-    /** context.messageId of the requests: CCE sets it to the delivery id. */
+    /** context.messageId of the requests. CCE sets it to the delivery id, as it does message.id. */
     static final String MESSAGE_ID = "7a7a7a7a-0000-4000-8000-000000000002";
 
-    /** The message of a sygnal/signal/emit: the cce:CceCareAlert itself, with the alert of the earlier on_status tests. */
+    /** message.id of the alerts. It differs from MESSAGE_ID here, to tell the two apart. */
+    static final String SIGNAL_ID = "5b5b5b5b-0000-4000-8000-000000000003";
+
+    /**
+     * The message of a sygnal/signal/emit: a sygnal:Signal of the CCE profile v3.0 with the care-alert
+     * fields directly on it, here the alert of the earlier on_status tests.
+     */
     static final String ALERT = """
-            {"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
-             "@type":"cce:CceCareAlert","patientId":"0123123123133","severity":"HIGH","stepStatus":"not-started",
-             "slaStatus":"overdue","fhirVersion":"4.0.1",
+            {"@type":"sygnal:Signal","id":"5b5b5b5b-0000-4000-8000-000000000003","signalType":"SLA_BREACH",
+             "target":{"id":"bap.openmrs.nextsteps.mdtlabs.org","role":"PROVIDER"},"severity":"HIGH",
+             "basis":"CCE care step status: not-started, SLA status: overdue","issuedAt":"2026-11-20T10:00:00.123Z",
+             "patientId":"0123123123133","stepStatus":"not-started","slaStatus":"overdue","fhirVersion":"4.0.1",
              "resource":{"resourceType":"CommunicationRequest","status":"active","priority":"urgent",
                "identifier":[{"system":"http://openphc.org/fhir/intelligence-delivery-id","value":"9f2c1d4e-0000-4000-8000-000000000001"}],
                "subject":{"type":"Patient","identifier":{"system":"http://openphc.org/fhir/patient-upid","value":"0123123123133"}},
                "payload":[{"contentString":"ECG not ordered within 10 minutes of a Heart disease diagnosis"}],
                "extension":[{"url":"http://openphc.org/fhir/StructureDefinition/cce-protocol-step-id","valueString":"ecg-order"}]}}""";
 
-    /** A Task alert: no delivery id identifier, so context.messageId is the delivery id. */
+    /** A Task alert: no delivery id identifier, so message.id is the delivery id. */
     static final String TASK_ALERT = """
-            {"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceCareAlert/v1.0/context.jsonld",
-             "@type":"cce:CceCareAlert","patientId":"0123123123133","severity":"CRITICAL",
-             "stepStatus":"not-started","slaStatus":"missed","fhirVersion":"4.0.1",
+            {"@type":"sygnal:Signal","id":"5b5b5b5b-0000-4000-8000-000000000003","signalType":"SLA_BREACH",
+             "target":{"id":"bap.openmrs.nextsteps.mdtlabs.org","role":"PROVIDER"},"severity":"CRITICAL",
+             "basis":"CCE care step status: not-started, SLA status: missed","issuedAt":"2026-11-20T10:00:00.123Z",
+             "patientId":"0123123123133","stepStatus":"not-started","slaStatus":"missed","fhirVersion":"4.0.1",
              "resource":{"resourceType":"Task","status":"requested","intent":"order",
                "description":"step anc-visit-2 missed"}}""";
 
@@ -74,7 +82,7 @@ class CareAlertNotifierTest {
 
         assertThat(notifier.notify(request(ALERT))).isTrue();
 
-        // The resource's delivery id identifier comes before context.messageId.
+        // The resource's delivery id identifier comes before message.id and context.messageId.
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
         verify(notifications).notify(payload.capture(), eq(List.of("user-1")),
                 eq("CceCareAlert:9f2c1d4e-0000-4000-8000-000000000001"));
@@ -97,15 +105,43 @@ class CareAlertNotifierTest {
     }
 
     @Test
-    void a_task_alert_is_deduplicated_on_the_context_message_id() throws Exception {
+    void a_task_alert_is_deduplicated_on_the_signal_id() throws Exception {
         assertThat(notifier.notify(request(TASK_ALERT))).isTrue();
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
-        verify(notifications).notify(payload.capture(), anyList(),
-                eq("CceCareAlert:7a7a7a7a-0000-4000-8000-000000000002"));
+        verify(notifications).notify(payload.capture(), anyList(), eq("CceCareAlert:" + SIGNAL_ID));
         assertThat(payload.getValue().severity()).isEqualTo("CRITICAL");
         assertThat(payload.getValue().title()).isEqualTo("step anc-visit-2 missed");
         assertThat(payload.getValue().body()).contains("Step status: not-started · SLA status: missed");
+    }
+
+    @Test
+    void without_a_signal_id_the_context_message_id_is_the_deduplication_key() throws Exception {
+        // SignalEmitService refuses a Signal without an id; this is the notifier's last resort.
+        assertThat(notifier.notify(request(TASK_ALERT.replace("\"id\":\"" + SIGNAL_ID + "\",", "")))).isTrue();
+
+        verify(notifications).notify(any(), anyList(), eq("CceCareAlert:" + MESSAGE_ID));
+    }
+
+    @Test
+    void a_signalAttributes_bag_is_not_read() throws Exception {
+        // Profile v1.0 had the alert in this bag. Its values must not replace the Signal's own.
+        String withBag = ALERT.replace("\"patientId\":", """
+                "signalAttributes":{"@type":"cce:CceCareAlert","patientId":"from-the-bag","severity":"CRITICAL",
+                  "stepStatus":"completed","resource":{"resourceType":"Task","description":"from the bag"}},
+                "patientId":""");
+        assertThat(notifier.notify(request(withBag))).isTrue();
+
+        ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
+        verify(notifications).notify(payload.capture(), anyList(), anyString());
+        assertThat(payload.getValue().severity()).isEqualTo("WARNING");
+        assertThat(payload.getValue().title()).isEqualTo("ECG not ordered within 10 minutes of a Heart disease diagnosis");
+        assertThat(payload.getValue().body()).startsWith("Patient national-id 0123123123133 (not registered in OpenMRS) · Step status: not-started");
+
+        // A Signal with the alert only in the bag has no patient: nothing is notified.
+        assertThat(notifier.notify(request(
+                "{\"@type\":\"sygnal:Signal\",\"id\":\"" + SIGNAL_ID + "\",\"signalAttributes\":" + withBag + "}"))).isFalse();
+        verify(notifications).notify(any(), anyList(), anyString());
     }
 
     @Test
@@ -134,12 +170,11 @@ class CareAlertNotifierTest {
         assertThat(CareAlertNotifier.title(OM.readTree("{}"))).isEqualTo("Care coordination alert");
         assertThat(CareAlertNotifier.title(OM.readTree("{\"payload\":[{\"contentString\":\"" + "x".repeat(200) + "\"}]}")))
                 .hasSize(120);
-        assertThat(CareAlertNotifier.isCareAlert(OM.readTree(ALERT))).isTrue();
-        assertThat(CareAlertNotifier.isCareAlert(OM.readTree("{\"@type\":\"cce:CceClinicalEvent\"}"))).isFalse();
-        // The earlier places of the alert are not read any more: the signalAttributes of a sygnal:Signal,
-        // and the performanceAttributes of a Beckn on_status.
-        assertThat(CareAlertNotifier.isCareAlert(OM.readTree(
-                "{\"@type\":\"sygnal:Signal\",\"signalAttributes\":{\"@type\":\"cce:CceCareAlert\"}}"))).isFalse();
-        assertThat(CareAlertNotifier.isCareAlert(OM.readTree("{\"performanceAttributes\":{\"@type\":\"cce:CceCareAlert\"}}"))).isFalse();
+        assertThat(CareAlertNotifier.isSignal(OM.readTree(ALERT))).isTrue();
+        // The message of profile v2.0, and the performanceAttributes of a Beckn on_status before that.
+        assertThat(CareAlertNotifier.isSignal(OM.readTree("{\"@type\":\"cce:CceCareAlert\"}"))).isFalse();
+        assertThat(CareAlertNotifier.isSignal(OM.readTree("{\"@type\":\"sygnal:CoordinationEvent\"}"))).isFalse();
+        assertThat(CareAlertNotifier.isSignal(OM.readTree("{\"performanceAttributes\":{\"@type\":\"sygnal:Signal\"}}"))).isFalse();
+        assertThat(CareAlertNotifier.isSignal(null)).isFalse();
     }
 }
