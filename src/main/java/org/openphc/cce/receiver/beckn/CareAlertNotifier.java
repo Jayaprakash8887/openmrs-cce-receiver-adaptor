@@ -93,7 +93,7 @@ public class CareAlertNotifier {
                             body(alert, resource, patientId, patientUuid != null),
                             patientUuid == null ? null : "/openmrs/spa/patient/" + patientUuid + "/chart"),
                     to,
-                    "CceCareAlert:" + deliveryId);
+                    "SygnalSignal:" + deliveryId);
             return true;
         } catch (RuntimeException e) {
             LOG.warn("CCE alert could not be notified: {}", e.toString());

@@ -162,7 +162,7 @@ The ids above are made up. With `OPENMRS_RECEIVER_BECKN_ENABLED=true` the adapto
 
 **onix-bpp wait.** The adaptor answers as soon as the write path returns, but the write path can be slow (several OpenMRS calls, each up to `OPENMRS_REST_TIMEOUT` / `OPENMRS_FHIR_TIMEOUT`). Set `onix-bpp`'s `responseHeaderTimeout` longer than the write path's worst case. onix's default of 5 s is too short. `spice-onix` must then wait longer than `onix-bpp`; agree the numbers with the Spice team.
 
-**Schema.** The `CceClinicalEvent` schema files come from `cce-beckn-service`'s `schema/` folder. The default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`.
+**Schema.** Since 2026-11-23 the schema set of `onix-bap` and `onix-bpp` (onix 1.9.4) is `CoordinationEvent/v3.0` plus the Health* pack, in place of `CceClinicalEvent/v1.0` (deleted). The `CoordinationEvent/v3.0` files (`attributes.yaml`, `context.jsonld`) come from `cce-beckn-service`'s `schema/` folder. The default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`. onix finds the box's schema by its `@type`: `sygnal:CoordinationEvent` → `CoordinationEvent/attributes.yaml` in its local schema folder. Spice's referral adapters change at the same time; an adapter without the old schema refuses the old `cce:CceClinicalEvent` box (`SCH_SCHEMA_ADAPTATION_FAILED`).
 
 **Network and ports.**
 
@@ -183,6 +183,7 @@ Do not expose `/beckn/**` through a public proxy. Only `openmrs-onix` should rea
 - [ ] Adaptor and onix containers on `cce-net`
 - [ ] `onix-bpp`'s `responseHeaderTimeout` raised above the write path's worst case (not the 5 s default)
 - [ ] onix uses the `cce-beckn-service` schema base URL
+- [ ] `onix-bap` and `onix-bpp` hold `CoordinationEvent/v3.0` and the Health* pack, and Spice's adapters hold the same set
 - [ ] "Referrals in" contract id and `transactionId` match the emitter's and Spice's settings
 
 ---
@@ -191,7 +192,7 @@ Do not expose `/beckn/**` through a public proxy. Only `openmrs-onix` should rea
 
 > **Status:** Built (demo), on by default on this branch. Full design: [sygnal-integration.md](sygnal-integration.md).
 
-CCE sends care alerts as Sygnal `sygnal/signal/emit`. `onix-openmrs` receives them on its `/sygnal/receiver/` module, checks the signature and the schema, and forwards them to `http://openmrs-cce-receiver-adaptor:8080`; onix appends the action, so the adaptor gets `POST /sygnal/signal/emit`. The Spice Beckn routing above is unchanged.
+CCE sends care alerts as Sygnal `sygnal/signal/emit`. `onix-openmrs` receives them on its `/sygnal/receiver/` module, checks the signature and the schema, and forwards them to `http://openmrs-cce-receiver-adaptor:8080`; onix appends the action, so the adaptor gets `POST /sygnal/signal/emit`. The Spice Beckn routing above is unchanged. `onix-openmrs` needs the CCE Sygnal profile v3.0 as two files in one folder: `cce-sygnal-apis.yaml`, loaded as its spec, and `cce-fhir-extension.yaml`, which the first refers to (`schema/sygnal-profile/v3.0/` in `cce-beckn-service`).
 
 **Environment.** The defaults are the demo network's ids; set them only when they differ:
 

@@ -21,11 +21,18 @@ public final class BecknTestMessages {
     private BecknTestMessages() {
     }
 
+    /**
+     * A performance entry of a referral message: its box is a {@code sygnal:CoordinationEvent} of the CCE
+     * profile v3.0 with the FHIR fields (schema {@code CoordinationEvent/v3.0} of cce-beckn-service).
+     */
     public static String entry(String performanceId, String resource) {
         return """
                 {"id":"%s","performanceAttributes":{
-                  "@type":"cce:CceClinicalEvent","eventType":"x","patientId":"1198503150001234",
-                  "fhirVersion":"4.0.1","resource":%s}}""".formatted(performanceId, resource);
+                  "@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CoordinationEvent/v3.0/context.jsonld",
+                  "@type":"sygnal:CoordinationEvent","id":"%s","revision":1,"eventType":"DELIVERY_RECORDED",
+                  "granularity":"INDIVIDUAL","from":{"id":"bap.spice.example.org","role":"PROVIDER"},
+                  "occurredAt":"2026-11-15T09:55:00Z","patientId":"1198503150001234",
+                  "fhirVersion":"4.0.1","resource":%s}}""".formatted(performanceId, java.util.UUID.randomUUID(), resource);
     }
 
     public static String srEntry() {

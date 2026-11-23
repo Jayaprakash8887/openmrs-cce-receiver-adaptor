@@ -4,6 +4,8 @@
 **Design:** `openmrs-beckn-service/docs/design-openmrs-beckn-integration.md` ("the design"). This page covers the receiver's part only.
 
 > **CCE legs moved to Sygnal.** CCE care alerts no longer come as a Beckn `on_status`: they arrive as Sygnal `sygnal/signal/emit` at `POST /sygnal/signal/emit` — see [sygnal-integration.md](sygnal-integration.md). OpenMRS → HIE → CCE events travel as Sygnal `sygnal/event/report`, so no `on_update` comes back from the HIE any more. The Spice ↔ OpenMRS referral flows on this page are unchanged, standard Beckn.
+>
+> **Change 2026-11-23: the box of the referral messages is a `sygnal:CoordinationEvent`.** In `update`, `on_update` and `on_status` between OpenMRS and Spice, the `performanceAttributes` box (where the message has one; the receiver's own `on_update`, §4.4, has none) is no longer a `cce:CceClinicalEvent` v1.0. It is the same object as the event of Sygnal `sygnal/event/report`, a `sygnal:CoordinationEvent`, with an `@context` first (§3.3). The schema is `schema/CoordinationEvent/v3.0/` in `cce-beckn-service`; `CceClinicalEvent/v1.0` and `CceCareAlert/v1.0` are deleted. The schema set of `onix-bap` and `onix-bpp` (onix 1.9.4) is now `CoordinationEvent/v3.0` plus the Health* pack (§8). Spice changes its boxes and its referral adapters at the same time; an adapter without the old schema refuses the old box (`SCH_SCHEMA_ADAPTATION_FAILED`). The receiver reads only `performanceAttributes.resource`, so what it does is unchanged. The `hrf:HealthReferral` flow (§4A) is unchanged.
 
 The receiver gets two Beckn endpoints. They are an extra door into OpenMRS, not a replacement. The existing `POST /api/v1/openmrs/fhir` endpoint is unchanged, and with `OPENMRS_RECEIVER_BECKN_ENABLED=false` the receiver behaves exactly as today. On the `demo-beckn` branch Beckn is on by default.
 
@@ -225,7 +227,7 @@ Both endpoints exist only when `receiver.beckn.enabled=true`. With it off, no Be
 | `POST /beckn/bpp-webhook/{action}` | `onix-bpp` | A referral from Spice: `update` with FHIR resources (§4), or the health-referral flow `select` / `init` / `confirm` / `status` (§4A) |
 | `POST /beckn/bap-webhook/{action}` | `onix-bap` | `on_update` from the HIE or Spice. `on_status` from Spice: the outcome of a referral out |
 
-onix has already checked the Beckn signature and the schema. It appends the action name to the path. The body is a full Beckn message (`context` plus `message`). In an `update`, each performance entry carries one FHIR resource in a `CceClinicalEvent` box; in the health-referral flow, the contract is a `hrf:HealthReferral` (§4A).
+onix has already checked the Beckn signature and the schema. It appends the action name to the path. The body is a full Beckn message (`context` plus `message`). In an `update`, each performance entry carries one FHIR resource in a `sygnal:CoordinationEvent` box (§3.3); in the health-referral flow, the contract is a `hrf:HealthReferral` (§4A).
 
 Both endpoints answer in the same `Ack` / `Nack` body as `cce-beckn-service` (§3.4).
 
@@ -251,17 +253,27 @@ A body that is not JSON, or a `context.action` that is not the action in the pat
 
 The `Ack` to the HIE's `update` already means CCE accepted the event, because every answer on that route comes back in the same call. The `on_update` that follows is for the log only. It may arrive before that `Ack`, or not at all (CCE sends it once). The receiver logs it whenever it comes and nothing depends on it.
 
-### 3.3 The `CceClinicalEvent` box
+### 3.3 The `sygnal:CoordinationEvent` box
+
+Since 2026-11-23 the box (`performanceAttributes`) of a referral message is a `sygnal:CoordinationEvent`: the same object as the event of Sygnal `sygnal/event/report`, with an `@context` first. Beckn core requires `@context` on `performanceAttributes`, and onix checks a typed object only when it has one. onix finds the schema by `@type`: `sygnal:CoordinationEvent` → `CoordinationEvent/attributes.yaml` in its local schema folder. Before, the box was a `cce:CceClinicalEvent` v1.0, with `eventType` = the FHIR resource type.
 
 | Field | Required | Meaning |
 |---|---|---|
-| `eventType` | Yes | The FHIR resource type |
+| `@context` | Yes | `{schema base URL}/CoordinationEvent/v3.0/context.jsonld` |
+| `@type` | Yes | `sygnal:CoordinationEvent` |
+| `id` | Yes | The event id, a UUID |
+| `revision` | No | Always `1` |
+| `eventType` | Yes | A Sygnal kind: `DELIVERY_RECORDED`. The kind of clinical event is `resource.resourceType` |
+| `granularity` | No | `INDIVIDUAL` |
+| `from` | No | `{ "id": …, "role": "PROVIDER" }`. `id` is the subscriber id that sends the message: `context.bapId` in an `update`, `context.bppId` in an `on_update` or `on_status` |
+| `occurredAt` | Yes | `meta.lastUpdated` of the resource |
 | `patientId` | Yes | The patient's national ID |
 | `fhirVersion` | Yes | Always `4.0.1` |
-| `resource` | Yes | The FHIR resource |
+| `facilityId`, `facilityName` | No | The facility |
 | `sourceEventId` | No | `{ResourceType}/{id}` |
+| `resource` | Yes | The FHIR resource |
 
-The receiver builds no CloudEvents. CCE care alerts (`CceCareAlert`) arrive over Sygnal, not here (§5.1).
+The receiver reads only `resource`; onix has already checked the rest. The receiver builds no CloudEvents. CCE care alerts arrive over Sygnal as a `sygnal:Signal`, not here (§5.1).
 
 ### 3.4 `Ack` and `Nack` bodies
 
@@ -339,9 +351,14 @@ The `update` from Spice (design §5.4):
         {
           "id": "8a1b2c3d-4e5f-5a6b-8c7d-9e0f1a2b3c4d",
           "performanceAttributes": {
-            "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CceClinicalEvent/v1.0/context.jsonld",
-            "@type": "cce:CceClinicalEvent",
-            "eventType": "ServiceRequest",
+            "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CoordinationEvent/v3.0/context.jsonld",
+            "@type": "sygnal:CoordinationEvent",
+            "id": "8a1b2c3d-4e5f-5a6b-8c7d-9e0f1a2b3c4d",
+            "revision": 1,
+            "eventType": "DELIVERY_RECORDED",
+            "granularity": "INDIVIDUAL",
+            "from": { "id": "bap.spice.example.org", "role": "PROVIDER" },
+            "occurredAt": "2026-11-15T09:55:00Z",
             "patientId": "1198503150001234",
             "fhirVersion": "4.0.1",
             "resource": {
@@ -367,7 +384,7 @@ The `update` from Spice (design §5.4):
 }
 ```
 
-This sample shows only the `ServiceRequest` entry. The `Patient`, when sent, is a second entry of the same form with `eventType` `Patient`. `context.networkId` is optional; when Spice sends it, the receiver copies it into its `on_update` (§4.4).
+This sample shows only the `ServiceRequest` entry. The `Patient`, when sent, is a second entry of the same form, with a `Patient` as `resource`. `from.id` is Spice's BAP id, `context.bapId`, because Spice sends the `update`. `context.networkId` is optional; when Spice sends it, the receiver copies it into its `on_update` (§4.4).
 
 "Appendix B.1" is the draft commitment in the design.
 
@@ -615,9 +632,9 @@ There are no "referrals in" contract or transaction id settings: the `on_update`
 | `local-simple-routing-BPPReceiver.yaml` | `http://host.docker.internal:8075/api/bpp-webhook` | `http://openmrs-cce-receiver-adaptor:8080/beckn/bpp-webhook` |
 | `local-simple-routing-BAPReceiver.yaml` | `http://host.docker.internal:8075/api/bap-webhook` | `http://openmrs-cce-receiver-adaptor:8080/beckn/bap-webhook` |
 
-The two caller routing files need no change. The rest of the onix changes (Beckn ids, keys, `storeBody: "false"`, the `CceClinicalEvent` schema) are in design Appendix A.4.
+The two caller routing files need no change. The rest of the onix changes (Beckn ids, keys, `storeBody: "false"`) are in design Appendix A.4. Since 2026-11-23 the schema set of `onix-bap` and `onix-bpp` (onix 1.9.4) is `CoordinationEvent/v3.0` plus the Health* pack, in place of the `CceClinicalEvent` schema.
 
-**Schema.** The `CceClinicalEvent` schema files come from `cce-beckn-service`'s `schema/` folder. The default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`. Use the same base URL as Spice and the HIE, so all adapters check messages against the same files.
+**Schema.** The `CoordinationEvent/v3.0` schema files (`attributes.yaml`, `context.jsonld`) come from `cce-beckn-service`'s `schema/` folder. onix finds the box's schema by its `@type`: `sygnal:CoordinationEvent` → `CoordinationEvent/attributes.yaml` in its local schema folder. Spice's referral adapters need the same set, at the same time: an adapter without the old schema refuses the old `cce:CceClinicalEvent` box (`SCH_SCHEMA_ADAPTATION_FAILED`). The default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`. Use the same base URL as Spice and the HIE, so all adapters check messages against the same files.
 
 **onix-bpp wait.** The receiver answers as soon as the write path returns, but the write path can be slow: a referral makes several OpenMRS calls, each with its own timeout (`OPENMRS_REST_TIMEOUT`, `OPENMRS_FHIR_TIMEOUT`). `onix-bpp`'s wait for the receiver (`responseHeaderTimeout`) must be longer than the write path's worst case. onix's default of 5 s is too short. Raise it, and agree the number with the Spice team, since `spice-onix` must wait longer still.
 

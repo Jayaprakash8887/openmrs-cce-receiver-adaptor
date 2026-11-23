@@ -113,7 +113,7 @@ class SignalEmitEndpointTest {
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
         verify(notifications, timeout(3000)).notify(payload.capture(), eq(List.of("user-1")),
-                eq("CceCareAlert:" + DELIVERY_ID));
+                eq("SygnalSignal:" + DELIVERY_ID));
         NotificationPayload p = payload.getValue();
         assertThat(p.type()).isEqualTo("CCE_ALERT");
         assertThat(p.severity()).isEqualTo("WARNING");
@@ -138,7 +138,7 @@ class SignalEmitEndpointTest {
         emit(signalEmit()).andExpect(status().isOk());
         emit(signalEmit()).andExpect(status().isOk());
         // OpenMrsNotificationClient drops the second one on this key.
-        verify(notifications, timeout(3000).times(2)).notify(any(), anyList(), eq("CceCareAlert:" + DELIVERY_ID));
+        verify(notifications, timeout(3000).times(2)).notify(any(), anyList(), eq("SygnalSignal:" + DELIVERY_ID));
     }
 
     @Test
@@ -221,7 +221,7 @@ class SignalEmitEndpointTest {
                 .andExpect(jsonPath("$.message.status").value("ACK"));
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
-        verify(notifications, timeout(3000)).notify(payload.capture(), anyList(), eq("CceCareAlert:" + DELIVERY_ID));
+        verify(notifications, timeout(3000)).notify(payload.capture(), anyList(), eq("SygnalSignal:" + DELIVERY_ID));
         assertThat(payload.getValue().severity()).isEqualTo("WARNING");
         assertThat(payload.getValue().body()).startsWith("Patient national-id " + PATIENT_ID);
         verify(openMrs, never()).searchByIdentifier("/patient", "from-the-bag");
@@ -242,7 +242,7 @@ class SignalEmitEndpointTest {
         emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, task)).andExpect(status().isOk());
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
-        verify(notifications, timeout(3000)).notify(payload.capture(), anyList(), eq("CceCareAlert:" + DELIVERY_ID));
+        verify(notifications, timeout(3000)).notify(payload.capture(), anyList(), eq("SygnalSignal:" + DELIVERY_ID));
         assertThat(payload.getValue().severity()).isEqualTo("CRITICAL");
         assertThat(payload.getValue().title()).isEqualTo("step anc-visit-2 missed");
     }

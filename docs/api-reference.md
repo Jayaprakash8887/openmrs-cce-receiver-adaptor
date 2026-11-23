@@ -171,7 +171,7 @@ The adaptor returns one of the following status codes based on the per-resource 
 
 > **Status:** Built (demo), off by default. Full design, samples and settings: [beckn-integration.md](beckn-integration.md).
 
-Two endpoints, present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true` (`receiver.beckn.enabled`). With it off they answer 404. They are called by the `openmrs-onix` adapter containers, which have already checked the Beckn signature and the schema. No bearer token is checked: the paths are outside the `/api/**` filter. The body is a full Beckn message; each performance entry carries one FHIR resource in a `CceClinicalEvent` box.
+Two endpoints, present only when `OPENMRS_RECEIVER_BECKN_ENABLED=true` (`receiver.beckn.enabled`). With it off they answer 404. They are called by the `openmrs-onix` adapter containers, which have already checked the Beckn signature and the schema. No bearer token is checked: the paths are outside the `/api/**` filter. The body is a full Beckn message; each performance entry carries one FHIR resource in a `sygnal:CoordinationEvent` box with an `@context` (schema `CoordinationEvent/v3.0`; until 2026-11-23 a `cce:CceClinicalEvent` box). The adaptor reads only `performanceAttributes.resource`.
 
 The existing `POST /api/v1/openmrs/fhir` endpoint is unchanged.
 

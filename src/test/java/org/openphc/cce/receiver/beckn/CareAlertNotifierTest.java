@@ -85,7 +85,7 @@ class CareAlertNotifierTest {
         // The resource's delivery id identifier comes before message.id and context.messageId.
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
         verify(notifications).notify(payload.capture(), eq(List.of("user-1")),
-                eq("CceCareAlert:9f2c1d4e-0000-4000-8000-000000000001"));
+                eq("SygnalSignal:9f2c1d4e-0000-4000-8000-000000000001"));
         NotificationPayload p = payload.getValue();
         assertThat(p.type()).isEqualTo("CCE_ALERT");
         assertThat(p.severity()).isEqualTo("WARNING");
@@ -109,7 +109,7 @@ class CareAlertNotifierTest {
         assertThat(notifier.notify(request(TASK_ALERT))).isTrue();
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
-        verify(notifications).notify(payload.capture(), anyList(), eq("CceCareAlert:" + SIGNAL_ID));
+        verify(notifications).notify(payload.capture(), anyList(), eq("SygnalSignal:" + SIGNAL_ID));
         assertThat(payload.getValue().severity()).isEqualTo("CRITICAL");
         assertThat(payload.getValue().title()).isEqualTo("step anc-visit-2 missed");
         assertThat(payload.getValue().body()).contains("Step status: not-started · SLA status: missed");
@@ -120,7 +120,7 @@ class CareAlertNotifierTest {
         // SignalEmitService refuses a Signal without an id; this is the notifier's last resort.
         assertThat(notifier.notify(request(TASK_ALERT.replace("\"id\":\"" + SIGNAL_ID + "\",", "")))).isTrue();
 
-        verify(notifications).notify(any(), anyList(), eq("CceCareAlert:" + MESSAGE_ID));
+        verify(notifications).notify(any(), anyList(), eq("SygnalSignal:" + MESSAGE_ID));
     }
 
     @Test

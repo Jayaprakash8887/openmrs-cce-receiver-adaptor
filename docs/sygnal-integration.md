@@ -1,7 +1,7 @@
 # Sygnal Integration — OpenMRS CCE Receiver Adaptor
 
 **Status:** Built for the demo. On by default on this branch (`OPENMRS_RECEIVER_BECKN_ENABLED=true`); set `OPENMRS_RECEIVER_BECKN_ENABLED=false` to switch it off.
-**Contract:** the CCE profile of Sygnal, `cce-beckn-service/schema/sygnal-profile/v3.0/cce-sygnal-apis.yaml`. The sender is `cce-beckn-service` (`MessageFactory#signalEmit`).
+**Contract:** the CCE profile of Sygnal, `cce-beckn-service/schema/sygnal-profile/v3.0/`: `cce-sygnal-apis.yaml` (Sygnal's own fields) and `cce-fhir-extension.yaml` (the FHIR fields, which the first refers to). The sender is `cce-beckn-service` (`MessageFactory#signalEmit`).
 
 The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its care alerts there, and the receiver raises them as OpenMRS notifications. It is an extra door into OpenMRS, not a replacement: the existing `POST /api/v1/openmrs/fhir` endpoint is unchanged, and with `OPENMRS_RECEIVER_BECKN_ENABLED=false` the receiver behaves exactly as before Beckn.
 
@@ -20,8 +20,10 @@ The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its
 > | v3.0 | 2026-11-23 | `sygnal:Signal` with the care-alert fields on it | The one in use |
 >
 > Unchanged through all three: the action name and path, the Sygnal `context`, the `Ack` / `Nack` bodies and codes, no callbacks, the onix routing, the ids, every setting, and the Spice referral flows. The description at the top of the profile file has the full list of differences from Sygnal.
+>
+> **Change 2026-11-23 (later the same day).** Profile v3.0 is now two files in one folder: `cce-sygnal-apis.yaml` (Sygnal's own fields; the types are open, `additionalProperties: true`, and `Signal.severity` also accepts `LOW` / `MEDIUM` / `HIGH`) and `cce-fhir-extension.yaml` (`SignalFhirExtension`, `CoordinationEventFhirExtension`: the FHIR fields), which the first refers to. The messages on the wire are unchanged. `cce:CceCareAlert` is no longer used anywhere and its schema (`CceCareAlert/v1.0`) is deleted. The notification key prefix is now `SygnalSignal:` (§4). In the Spice referral messages the `performanceAttributes` box is now a `sygnal:CoordinationEvent` ([beckn-integration.md](beckn-integration.md) §3.3); the receiver handles them as before.
 
-Only the CCE care-alert leg uses Sygnal. It replaces the earlier Beckn `on_status` care alert on `/beckn/bap-webhook`. The Spice ↔ OpenMRS referral flows (`/beckn/bpp-webhook/{update,select,init,confirm,status}`, the callbacks to Spice, and Spice's `on_update` / `on_status` on `/beckn/bap-webhook`) stay standard Beckn and are unchanged: see [beckn-integration.md](beckn-integration.md).
+Only the CCE care-alert leg uses Sygnal. It replaces the earlier Beckn `on_status` care alert on `/beckn/bap-webhook`. The Spice ↔ OpenMRS referral flows (`/beckn/bpp-webhook/{update,select,init,confirm,status}`, the callbacks to Spice, and Spice's `on_update` / `on_status` on `/beckn/bap-webhook`) stay standard Beckn, and the receiver handles them as before; since 2026-11-23 their `performanceAttributes` box is a `sygnal:CoordinationEvent`: see [beckn-integration.md](beckn-integration.md).
 
 ---
 
@@ -127,7 +129,7 @@ onix has already validated the schema, so in normal operation only the id checks
 
 ### 3.3 The extended `sygnal:Signal`
 
-The fields of `message` that CCE sends. The first seven are Sygnal's own; the ones from `patientId` down are added in CCE's copy of the type. The type is open in the profile, so onix does not refuse an extra field, and the receiver ignores it.
+The fields of `message` that CCE sends. The first seven are Sygnal's own; the ones from `patientId` down are added in CCE's copy of the type (`SignalFhirExtension` in `cce-fhir-extension.yaml`). The type is open in the profile, so onix does not refuse an extra field, and the receiver ignores it.
 
 | Field | Required | Use |
 |---|---|---|
@@ -186,7 +188,7 @@ After a valid request, the receiver hands the alert to the `careAlertExecutor` t
 | `body` | `Patient national-id <patientId> · Step status: <stepStatus> · SLA status: <slaStatus> · Step: <protocol step>`; parts without a value are left out; "(not registered in OpenMRS)" after the id when no OpenMRS patient has it |
 | `link` | The patient's chart, when a patient has that national id |
 
-**De-duplication.** The notification is keyed `CceCareAlert:<delivery id>`, where the delivery id is the resource's `intelligence-delivery-id` identifier, else `message.id`, else `context.messageId` (CCE sets all three to the delivery id; a `Task` has no identifier). The prefix of the key is only a name; it is not the message type. The notification client drops a second notification with the same key within `OPENMRS_NOTIFICATION_DEDUPE_TTL_HOURS` (24 h by default). A repeated alert is therefore answered `Ack` and not notified twice.
+**De-duplication.** The notification is keyed `SygnalSignal:<delivery id>` (until 2026-11-23 `CceCareAlert:<delivery id>`), where the delivery id is the resource's `intelligence-delivery-id` identifier, else `message.id`, else `context.messageId` (CCE sets all three to the delivery id; a `Task` has no identifier). The prefix of the key is only a name; it is not the message type. The notification client drops a second notification with the same key within `OPENMRS_NOTIFICATION_DEDUPE_TTL_HOURS` (24 h by default). A repeated alert is therefore answered `Ack` and not notified twice.
 
 A failure to notify (no recipients, OpenMRS down) is logged and counted (`openmrs_beckn_care_alerts_total{result="not-notified"}`) but cannot change the answer, which was already sent.
 
@@ -244,7 +246,7 @@ These two ids sit in the same `receiver.beckn` block as the Spice referral setti
 
 CCE addresses OpenMRS with `context.receiverUri` = OpenMRS's public onix receiver base (e.g. `https://openmrs.example.org/sygnal/receiver`); `onix-cce` appends the action. That URI is a setting of `cce-beckn-service` (its HMIS list), not of this service.
 
-**Schema.** The Sygnal modules of onix validate `message` against the `Signal` type of the profile, `schema/sygnal-profile/v3.0/cce-sygnal-apis.yaml` in `cce-beckn-service`. The profile file is all they need: no object in the message carries `@context`, so there are no payload schemas to load, the extended schema check is off, and the Sygnal modules have no schema folder of their own. Use the same profile version in every onix (v3.0; v1.0 and v2.0 are deleted). The Beckn referral modules keep their schema set as it is.
+**Schema.** The Sygnal modules of onix validate `message` against the `Signal` type of the profile, `schema/sygnal-profile/v3.0/` in `cce-beckn-service`. The module loads `cce-sygnal-apis.yaml` as its spec, and `cce-fhir-extension.yaml`, which it refers to, must sit in the same folder. These two files are all they need: no object in the message carries `@context`, so there are no payload schemas to load, the extended schema check is off, and the Sygnal modules have no schema folder of their own. Use the same profile version in every onix (v3.0; v1.0 and v2.0 are deleted). The Beckn referral modules have their own schema set: since 2026-11-23 `CoordinationEvent/v3.0` plus the Health* pack ([beckn-integration.md](beckn-integration.md) §8).
 
 **Wait.** The receiver answers before the notification is raised, so the answer is fast; onix's default wait is enough.
 
@@ -312,7 +314,7 @@ Never logged: message bodies, the FHIR resource, the patient id.
 | Old CCE `on_status` alerts | An `on_status` on `/beckn/bap-webhook` carrying a `cce:CceCareAlert` is logged and acked as a plain callback; no notification |
 | Alerts of an older profile | A `sygnal/signal/emit` whose `message` is a `cce:CceCareAlert` (profile v2.0) is refused: 400 `Nack` `SCH_TYPE_NOT_SUPPORTED`. One whose `message` is a `sygnal:Signal` with the alert only in `signalAttributes` (profile v1.0) is refused: 400 `Nack` `SCH_REQUIRED_FIELD_MISSING`. No notification in either case. `cce-beckn-service` and every onix must be on profile v3.0 |
 | `message.id` and `context.messageId` | The contract says they are equal. The receiver does not compare them; both are in the log line (§8.2) |
-| Spice referrals | Unchanged standard Beckn ([beckn-integration.md](beckn-integration.md)) |
+| Spice referrals | Standard Beckn, handled as before; the box is a `sygnal:CoordinationEvent` since 2026-11-23 ([beckn-integration.md](beckn-integration.md)) |
 
 ## 10. Related Documents
 
