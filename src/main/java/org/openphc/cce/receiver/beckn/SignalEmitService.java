@@ -19,8 +19,8 @@ import java.util.concurrent.RejectedExecutionException;
  *
  * <p>The {@code message} of the request is a {@code sygnal:Signal} as the CCE profile of Sygnal (v3.0)
  * extends it: the care-alert fields ({@code patientId}, {@code stepStatus}, {@code slaStatus},
- * {@code fhirVersion}, {@code resource}) sit directly on the Signal. {@code severity} is Sygnal's level;
- * CCE's own level is in Sygnal's bag {@code signalAttributes} ({@code @type} {@code cce:CareAlertAttributes}). It is checked, answered synchronously, and its OpenMRS notification is raised afterwards on
+ * {@code fhirVersion}, {@code resource}) sit directly on the Signal, and so does CCE's own level of severity,
+ * {@code cceSeverity} (Sygnal's {@code severity} is not sent). It is checked, answered synchronously, and its OpenMRS notification is raised afterwards on
  * {@link BecknConfig#CARE_ALERT_EXECUTOR}. Sygnal has no callback: the HTTP answer is the whole
  * result.
  * <ul>

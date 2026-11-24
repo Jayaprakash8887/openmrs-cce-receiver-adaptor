@@ -18,7 +18,7 @@ import java.util.StringJoiner;
  *
  * <p>CCE sends an alert as a {@code sygnal/signal/emit} whose {@code message} is a
  * {@code sygnal:Signal} with the care-alert fields directly on it (the CCE profile of Sygnal, v3.0):
- * the patient's national id ({@code patientId}), the CCE severity ({@code signalAttributes.severity}),
+ * the patient's national id ({@code patientId}), the CCE severity ({@code cceSeverity}),
  * the step's status, the SLA status
  * (optional) and the FHIR {@code CommunicationRequest} or {@code Task} the intelligence service
  * built. The notification goes through the same {@code /alert} endpoint and to the same recipients
@@ -29,7 +29,7 @@ import java.util.StringJoiner;
  *   <li>body — the patient's national id (and whether OpenMRS knows the patient), the step status,
  *       the SLA status and the protocol step</li>
  *   <li>link — the patient's chart, when a patient has that national id in OpenMRS</li>
- *   <li>severity — from CCE's level in {@code signalAttributes}: LOW → INFO, MEDIUM / HIGH → WARNING,
+ *   <li>severity — from CCE's level, {@code cceSeverity}: LOW → INFO, MEDIUM / HIGH → WARNING,
  *       CRITICAL → CRITICAL (OpenMRS notification levels)</li>
  * </ul>
  *
@@ -41,8 +41,6 @@ import java.util.StringJoiner;
 public class CareAlertNotifier {
 
     public static final String SIGNAL_TYPE = "sygnal:Signal";
-    /** The {@code @type} of the {@code signalAttributes} bag in which CCE sends its own level of severity. */
-    static final String ALERT_ATTRIBUTES_TYPE = "cce:CareAlertAttributes";
     static final String NOTIFICATION_TYPE = "CCE_ALERT";
     static final String PROTOCOL_STEP_EXTENSION = "cce-protocol-step-id";
     static final String DELIVERY_ID_SYSTEM = "http://openphc.org/fhir/intelligence-delivery-id";
@@ -138,14 +136,13 @@ public class CareAlertNotifier {
     }
 
     /**
-     * CCE's level of severity: {@code signalAttributes.severity} (LOW, MEDIUM, HIGH, CRITICAL), read only when
-     * the bag's {@code @type} is {@code cce:CareAlertAttributes}. Sygnal's {@code Signal.severity} has only
-     * INFO, WARNING, CRITICAL, so CCE carries its level in Sygnal's bag and does not send
-     * {@code Signal.severity}. Empty when the bag is missing.
+     * CCE's level of severity: {@code cceSeverity} on the Signal (LOW, MEDIUM, HIGH, CRITICAL). Sygnal's
+     * {@code Signal.severity} has only INFO, WARNING, CRITICAL, so CCE carries its level in a field of its own
+     * and does not send {@code Signal.severity}; neither {@code severity} nor a {@code signalAttributes} bag
+     * is read. Empty when the field is missing.
      */
     static String cceSeverity(JsonNode signal) {
-        JsonNode bag = signal.path("signalAttributes");
-        return ALERT_ATTRIBUTES_TYPE.equals(Json.text(bag, "@type")) ? Json.text(bag, "severity") : "";
+        return Json.text(signal, "cceSeverity");
     }
 
     /** CCE severity (LOW, MEDIUM, HIGH, CRITICAL) as an OpenMRS notification severity. */
