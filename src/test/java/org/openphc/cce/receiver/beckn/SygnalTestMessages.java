@@ -40,7 +40,7 @@ public final class SygnalTestMessages {
                  "target":{"id":"%s","role":"PROVIDER"},
                  "basis":"CCE care step status: not-started, SLA status: overdue",
                  "issuedAt":"2026-11-20T10:00:00.123Z",
-                 "signalAttributes":{"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/sygnal-profile/v3.0/cce-context.jsonld",
+                 "signalAttributes":{"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CareAlertAttributes/v3.0/context.jsonld",
                    "@type":"cce:CareAlertAttributes","severity":"HIGH"},
                  "patientId":"%s","stepStatus":"not-started","slaStatus":"overdue","fhirVersion":"4.0.1",
                  "resource":%s}"""

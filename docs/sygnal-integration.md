@@ -29,7 +29,7 @@ The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its
 >
 > | Field | Holds |
 > |---|---|
-> | `signalAttributes` | Sygnal's extension bag: `{ "@context": "<schema base URL>/sygnal-profile/v3.0/cce-context.jsonld", "@type": "cce:CareAlertAttributes", "severity": "HIGH" }`. `severity` here is CCE's own level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+> | `signalAttributes` | Sygnal's extension bag: `{ "@context": "<schema base URL>/CareAlertAttributes/v3.0/context.jsonld", "@type": "cce:CareAlertAttributes", "severity": "HIGH" }`. `severity` here is CCE's own level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 > | `severity` | Not sent. Sygnal does not require it (its required fields are `@type`, `signalType`, `issuedAt`), and CCE's extension no longer requires it. If another sender includes it, it must be one of Sygnal's `INFO`, `WARNING`, `CRITICAL` |
 >
 > There is no mapping from CCE's levels to Sygnal's. (Earlier on 2026-11-24 CCE also sent `severity` with a Sygnal level mapped from its own: `CRITICAL` → `CRITICAL`, `HIGH` and `MEDIUM` → `WARNING`, `LOW` → `INFO`. That was dropped the same day.)
@@ -109,7 +109,7 @@ The body is exactly what `cce-beckn-service` builds:
     "basis": "CCE care step status: not-started, SLA status: overdue",
     "issuedAt": "2026-11-20T10:00:00.123Z",
     "signalAttributes": {
-      "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/sygnal-profile/v3.0/cce-context.jsonld",
+      "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/CareAlertAttributes/v3.0/context.jsonld",
       "@type": "cce:CareAlertAttributes",
       "severity": "HIGH"
     },
@@ -122,7 +122,7 @@ The body is exactly what `cce-beckn-service` builds:
 }
 ```
 
-The `message` is a `sygnal:Signal` as the profile extends it (§3.3). CCE's level of severity is `signalAttributes.severity` (here `HIGH`); CCE does not send Sygnal's `severity`. The `@context` of the bag is `<schema base URL>/sygnal-profile/v3.0/cce-context.jsonld`; the default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`. `context.messageId` and `message.id` are both the intelligence service's delivery id. A repeated alert carries the same id.
+The `message` is a `sygnal:Signal` as the profile extends it (§3.3). CCE's level of severity is `signalAttributes.severity` (here `HIGH`); CCE does not send Sygnal's `severity`. The `@context` of the bag is `<schema base URL>/CareAlertAttributes/v3.0/context.jsonld`; the default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`. `context.messageId` and `message.id` are both the intelligence service's delivery id. A repeated alert carries the same id.
 
 ### 3.2 Checks
 
@@ -158,7 +158,7 @@ The fields of `message` that CCE sends. The first seven are Sygnal's own, as Syg
 | `target` | Yes | `{ "id": <context.receiverId>, "role": "PROVIDER" }`. Not read by the receiver |
 | `basis` | No | A sentence with the step status and the SLA status. Not read by the receiver |
 | `issuedAt` | Yes | When CCE sent the alert. Not read by the receiver |
-| `signalAttributes` | Yes | Sygnal's extension bag (its `Attributes`: `@context` and `@type` required). CCE's: `@context` = `<schema base URL>/sygnal-profile/v3.0/cce-context.jsonld`, `@type` = `cce:CareAlertAttributes`, `severity` = CCE's own level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+| `signalAttributes` | Yes | Sygnal's extension bag (its `Attributes`: `@context` and `@type` required). CCE's: `@context` = `<schema base URL>/CareAlertAttributes/v3.0/context.jsonld`, `@type` = `cce:CareAlertAttributes`, `severity` = CCE's own level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 | `patientId` | Yes | The patient's national id (the id CCE uses) |
 | `stepStatus` | Yes | The step's status, e.g. `not-started`, `completed` |
 | `slaStatus` | No | The SLA status, e.g. `overdue`, `missed` |
