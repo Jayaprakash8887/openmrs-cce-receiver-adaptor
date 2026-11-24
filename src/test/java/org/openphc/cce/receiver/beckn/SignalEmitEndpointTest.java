@@ -211,18 +211,19 @@ class SignalEmitEndpointTest {
 
     @Test
     void unknown_extra_fields_are_ignored_and_a_signalAttributes_bag_is_not_read() throws Exception {
-        // The Signal is open in the profile. A bag with other values must not win over the Signal's own fields.
-        String extended = signal().replace("\"patientId\":", """
-                "relatesTo":"ref-1","somethingNew":{"a":1},
-                "signalAttributes":{"@type":"cce:CceCareAlert","patientId":"from-the-bag","severity":"CRITICAL"},
-                "patientId":""");
+        // The Signal is open in the profile. A bag of another type (profile v1.0's) is not read: its values
+        // must not win over the Signal's own fields, and its severity is not CCE's level.
+        String extended = signal()
+                .replace("\"@type\":\"cce:CareAlertAttributes\",\"severity\":\"HIGH\"",
+                        "\"@type\":\"cce:CceCareAlert\",\"patientId\":\"from-the-bag\",\"severity\":\"CRITICAL\"")
+                .replace("\"patientId\":\"" + PATIENT_ID, "\"relatesTo\":\"ref-1\",\"somethingNew\":{\"a\":1},\"patientId\":\"" + PATIENT_ID);
 
         emit(signalEmit(SignalEmitService.ACTION, CCE_ID, SELF_ID, extended)).andExpect(status().isOk())
                 .andExpect(jsonPath("$.message.status").value("ACK"));
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
         verify(notifications, timeout(3000)).notify(payload.capture(), anyList(), eq("SygnalSignal:" + DELIVERY_ID));
-        assertThat(payload.getValue().severity()).isEqualTo("WARNING");
+        assertThat(payload.getValue().severity()).isEqualTo("INFO");   // no CCE level: the bag is not CCE's
         assertThat(payload.getValue().body()).startsWith("Patient national-id " + PATIENT_ID);
         verify(openMrs, never()).searchByIdentifier("/patient", "from-the-bag");
     }
@@ -232,9 +233,10 @@ class SignalEmitEndpointTest {
         // A Task has no delivery id identifier: the key is message.id, which is context.messageId.
         String task = """
                 {"@type":"sygnal:Signal","id":"%s","signalType":"SLA_BREACH",
-                 "target":{"id":"%s","role":"PROVIDER"},"severity":"CRITICAL",
+                 "target":{"id":"%s","role":"PROVIDER"},
                  "basis":"CCE care step status: not-started, SLA status: missed",
                  "issuedAt":"2026-11-20T10:00:00.123Z",
+                 "signalAttributes":{"@context":"x","@type":"cce:CareAlertAttributes","severity":"CRITICAL"},
                  "patientId":"%s","stepStatus":"not-started","slaStatus":"missed","fhirVersion":"4.0.1",
                  "resource":{"resourceType":"Task","status":"requested","intent":"order",
                    "description":"step anc-visit-2 missed"}}""".formatted(DELIVERY_ID, SELF_ID, PATIENT_ID);

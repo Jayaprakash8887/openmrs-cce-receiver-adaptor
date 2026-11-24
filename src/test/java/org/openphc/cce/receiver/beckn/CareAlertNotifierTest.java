@@ -38,8 +38,9 @@ class CareAlertNotifierTest {
      */
     static final String ALERT = """
             {"@type":"sygnal:Signal","id":"5b5b5b5b-0000-4000-8000-000000000003","signalType":"SLA_BREACH",
-             "target":{"id":"bap.openmrs.nextsteps.mdtlabs.org","role":"PROVIDER"},"severity":"HIGH",
+             "target":{"id":"bap.openmrs.nextsteps.mdtlabs.org","role":"PROVIDER"},
              "basis":"CCE care step status: not-started, SLA status: overdue","issuedAt":"2026-11-20T10:00:00.123Z",
+             "signalAttributes":{"@context":"x","@type":"cce:CareAlertAttributes","severity":"HIGH"},
              "patientId":"0123123123133","stepStatus":"not-started","slaStatus":"overdue","fhirVersion":"4.0.1",
              "resource":{"resourceType":"CommunicationRequest","status":"active","priority":"urgent",
                "identifier":[{"system":"http://openphc.org/fhir/intelligence-delivery-id","value":"9f2c1d4e-0000-4000-8000-000000000001"}],
@@ -50,8 +51,9 @@ class CareAlertNotifierTest {
     /** A Task alert: no delivery id identifier, so message.id is the delivery id. */
     static final String TASK_ALERT = """
             {"@type":"sygnal:Signal","id":"5b5b5b5b-0000-4000-8000-000000000003","signalType":"SLA_BREACH",
-             "target":{"id":"bap.openmrs.nextsteps.mdtlabs.org","role":"PROVIDER"},"severity":"CRITICAL",
+             "target":{"id":"bap.openmrs.nextsteps.mdtlabs.org","role":"PROVIDER"},
              "basis":"CCE care step status: not-started, SLA status: missed","issuedAt":"2026-11-20T10:00:00.123Z",
+             "signalAttributes":{"@context":"x","@type":"cce:CareAlertAttributes","severity":"CRITICAL"},
              "patientId":"0123123123133","stepStatus":"not-started","slaStatus":"missed","fhirVersion":"4.0.1",
              "resource":{"resourceType":"Task","status":"requested","intent":"order",
                "description":"step anc-visit-2 missed"}}""";
@@ -125,16 +127,16 @@ class CareAlertNotifierTest {
 
     @Test
     void a_signalAttributes_bag_is_not_read() throws Exception {
-        // Profile v1.0 had the alert in this bag. Its values must not replace the Signal's own.
-        String withBag = ALERT.replace("\"patientId\":", """
-                "signalAttributes":{"@type":"cce:CceCareAlert","patientId":"from-the-bag","severity":"CRITICAL",
-                  "stepStatus":"completed","resource":{"resourceType":"Task","description":"from the bag"}},
-                "patientId":""");
+        // Profile v1.0 had the alert in this bag. Its values must not replace the Signal's own, and its
+        // severity is not CCE's level (the bag is not cce:CareAlertAttributes).
+        String withBag = ALERT.replace("{\"@context\":\"x\",\"@type\":\"cce:CareAlertAttributes\",\"severity\":\"HIGH\"}", """
+                {"@type":"cce:CceCareAlert","patientId":"from-the-bag","severity":"CRITICAL",
+                  "stepStatus":"completed","resource":{"resourceType":"Task","description":"from the bag"}}""");
         assertThat(notifier.notify(request(withBag))).isTrue();
 
         ArgumentCaptor<NotificationPayload> payload = ArgumentCaptor.forClass(NotificationPayload.class);
         verify(notifications).notify(payload.capture(), anyList(), anyString());
-        assertThat(payload.getValue().severity()).isEqualTo("WARNING");
+        assertThat(payload.getValue().severity()).isEqualTo("INFO");
         assertThat(payload.getValue().title()).isEqualTo("ECG not ordered within 10 minutes of a Heart disease diagnosis");
         assertThat(payload.getValue().body()).startsWith("Patient national-id 0123123123133 (not registered in OpenMRS) · Step status: not-started");
 
@@ -163,16 +165,13 @@ class CareAlertNotifierTest {
 
     @Test
     void severity_and_title_rules() throws Exception {
-        // CCE's level is in signalAttributes (cce:CareAlertAttributes); Signal.severity is Sygnal's level.
+        // CCE's level is only in signalAttributes (cce:CareAlertAttributes). Sygnal's severity is not read.
         assertThat(CareAlertNotifier.cceSeverity(OM.readTree(
-                "{\"severity\":\"WARNING\",\"signalAttributes\":{\"@context\":\"x\","
+                "{\"signalAttributes\":{\"@context\":\"x\","
                         + "\"@type\":\"cce:CareAlertAttributes\",\"severity\":\"CRITICAL\"}}"))).isEqualTo("CRITICAL");
         assertThat(CareAlertNotifier.cceSeverity(OM.readTree(
-                "{\"severity\":\"WARNING\",\"signalAttributes\":{\"@type\":\"other:Bag\",\"severity\":\"CRITICAL\"}}")))
-                .isEqualTo("WARNING");
-        assertThat(CareAlertNotifier.cceSeverity(OM.readTree("{\"severity\":\"INFO\"}"))).isEqualTo("INFO");
-        assertThat(CareAlertNotifier.severity("WARNING")).isEqualTo("WARNING");
-        assertThat(CareAlertNotifier.severity("INFO")).isEqualTo("INFO");
+                "{\"signalAttributes\":{\"@type\":\"other:Bag\",\"severity\":\"CRITICAL\"}}"))).isEmpty();
+        assertThat(CareAlertNotifier.cceSeverity(OM.readTree("{\"severity\":\"WARNING\"}"))).isEmpty();
         assertThat(CareAlertNotifier.severity("LOW")).isEqualTo("INFO");
         assertThat(CareAlertNotifier.severity("medium")).isEqualTo("WARNING");
         assertThat(CareAlertNotifier.severity("CRITICAL")).isEqualTo("CRITICAL");

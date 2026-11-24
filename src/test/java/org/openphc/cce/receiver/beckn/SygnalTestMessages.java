@@ -31,13 +31,13 @@ public final class SygnalTestMessages {
 
     /**
      * The {@code message} of the alert: a {@code sygnal:Signal} of the CCE profile v3.0, with the
-     * care-alert fields directly on it, Sygnal's level in {@code severity} and CCE's in
-     * {@code signalAttributes}.
+     * care-alert fields directly on it and CCE's level of severity in {@code signalAttributes}. CCE does
+     * not send Sygnal's own {@code severity}.
      */
     public static String signal() {
         return """
                 {"@type":"sygnal:Signal","id":"%s","signalType":"SLA_BREACH",
-                 "target":{"id":"%s","role":"PROVIDER"},"severity":"WARNING",
+                 "target":{"id":"%s","role":"PROVIDER"},
                  "basis":"CCE care step status: not-started, SLA status: overdue",
                  "issuedAt":"2026-11-20T10:00:00.123Z",
                  "signalAttributes":{"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/sygnal-profile/v3.0/cce-context.jsonld",
