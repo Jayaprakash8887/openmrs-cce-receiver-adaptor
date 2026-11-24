@@ -163,6 +163,16 @@ class CareAlertNotifierTest {
 
     @Test
     void severity_and_title_rules() throws Exception {
+        // CCE's level is in signalAttributes (cce:CareAlertAttributes); Signal.severity is Sygnal's level.
+        assertThat(CareAlertNotifier.cceSeverity(OM.readTree(
+                "{\"severity\":\"WARNING\",\"signalAttributes\":{\"@context\":\"x\","
+                        + "\"@type\":\"cce:CareAlertAttributes\",\"severity\":\"CRITICAL\"}}"))).isEqualTo("CRITICAL");
+        assertThat(CareAlertNotifier.cceSeverity(OM.readTree(
+                "{\"severity\":\"WARNING\",\"signalAttributes\":{\"@type\":\"other:Bag\",\"severity\":\"CRITICAL\"}}")))
+                .isEqualTo("WARNING");
+        assertThat(CareAlertNotifier.cceSeverity(OM.readTree("{\"severity\":\"INFO\"}"))).isEqualTo("INFO");
+        assertThat(CareAlertNotifier.severity("WARNING")).isEqualTo("WARNING");
+        assertThat(CareAlertNotifier.severity("INFO")).isEqualTo("INFO");
         assertThat(CareAlertNotifier.severity("LOW")).isEqualTo("INFO");
         assertThat(CareAlertNotifier.severity("medium")).isEqualTo("WARNING");
         assertThat(CareAlertNotifier.severity("CRITICAL")).isEqualTo("CRITICAL");

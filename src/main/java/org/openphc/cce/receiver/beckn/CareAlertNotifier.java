@@ -18,7 +18,8 @@ import java.util.StringJoiner;
  *
  * <p>CCE sends an alert as a {@code sygnal/signal/emit} whose {@code message} is a
  * {@code sygnal:Signal} with the care-alert fields directly on it (the CCE profile of Sygnal, v3.0):
- * the patient's national id ({@code patientId}), the CCE severity, the step's status, the SLA status
+ * the patient's national id ({@code patientId}), the CCE severity ({@code signalAttributes.severity};
+ * {@code Signal.severity} holds Sygnal's level), the step's status, the SLA status
  * (optional) and the FHIR {@code CommunicationRequest} or {@code Task} the intelligence service
  * built. The notification goes through the same {@code /alert} endpoint and to the same recipients
  * as "New referral received".
@@ -28,7 +29,8 @@ import java.util.StringJoiner;
  *   <li>body — the patient's national id (and whether OpenMRS knows the patient), the step status,
  *       the SLA status and the protocol step</li>
  *   <li>link — the patient's chart, when a patient has that national id in OpenMRS</li>
- *   <li>severity — LOW → INFO, MEDIUM / HIGH → WARNING, CRITICAL → CRITICAL</li>
+ *   <li>severity — LOW → INFO, MEDIUM / HIGH → WARNING, CRITICAL → CRITICAL (from CCE's level in
+ *       {@code signalAttributes}; without it, Sygnal's level in {@code severity})</li>
  * </ul>
  *
  * A repeated alert (same delivery id) is not notified twice. Never throws: the alert has already
@@ -39,6 +41,8 @@ import java.util.StringJoiner;
 public class CareAlertNotifier {
 
     public static final String SIGNAL_TYPE = "sygnal:Signal";
+    /** The {@code @type} of the {@code signalAttributes} bag in which CCE sends its own level of severity. */
+    static final String ALERT_ATTRIBUTES_TYPE = "cce:CareAlertAttributes";
     static final String NOTIFICATION_TYPE = "CCE_ALERT";
     static final String PROTOCOL_STEP_EXTENSION = "cce-protocol-step-id";
     static final String DELIVERY_ID_SYSTEM = "http://openphc.org/fhir/intelligence-delivery-id";
@@ -88,7 +92,7 @@ public class CareAlertNotifier {
             notifications.notify(
                     new NotificationPayload(
                             NOTIFICATION_TYPE,
-                            severity(Json.text(alert, "severity")),
+                            severity(cceSeverity(alert)),
                             title(resource),
                             body(alert, resource, patientId, patientUuid != null),
                             patientUuid == null ? null : "/openmrs/spa/patient/" + patientUuid + "/chart"),
@@ -133,11 +137,26 @@ public class CareAlertNotifier {
         return body.toString();
     }
 
-    /** CCE severity (LOW, MEDIUM, HIGH, CRITICAL) as an OpenMRS notification severity. */
-    static String severity(String cceSeverity) {
-        return switch (cceSeverity.toUpperCase(Locale.ROOT)) {
+    /**
+     * CCE's own level of severity: {@code signalAttributes.severity} (LOW, MEDIUM, HIGH, CRITICAL). Sygnal's
+     * {@code Signal.severity} has only INFO, WARNING, CRITICAL, so CCE carries its level in Sygnal's bag.
+     * The bag is read only when its {@code @type} is {@code cce:CareAlertAttributes}. Without it, Sygnal's
+     * level is used.
+     */
+    static String cceSeverity(JsonNode signal) {
+        JsonNode bag = signal.path("signalAttributes");
+        String level = ALERT_ATTRIBUTES_TYPE.equals(Json.text(bag, "@type")) ? Json.text(bag, "severity") : "";
+        return level.isBlank() ? Json.text(signal, "severity") : level;
+    }
+
+    /**
+     * CCE severity (LOW, MEDIUM, HIGH, CRITICAL), or Sygnal's (INFO, WARNING, CRITICAL), as an OpenMRS
+     * notification severity.
+     */
+    static String severity(String level) {
+        return switch (level.toUpperCase(Locale.ROOT)) {
             case "CRITICAL" -> "CRITICAL";
-            case "MEDIUM", "HIGH" -> "WARNING";
+            case "MEDIUM", "HIGH", "WARNING" -> "WARNING";
             default -> "INFO";
         };
     }

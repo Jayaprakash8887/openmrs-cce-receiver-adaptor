@@ -1,11 +1,11 @@
 # Sygnal Integration — OpenMRS CCE Receiver Adaptor
 
 **Status:** Built for the demo. On by default on this branch (`OPENMRS_RECEIVER_BECKN_ENABLED=true`); set `OPENMRS_RECEIVER_BECKN_ENABLED=false` to switch it off.
-**Contract:** the CCE profile of Sygnal, `cce-beckn-service/schema/sygnal-profile/v3.0/`: `cce-sygnal-apis.yaml` (Sygnal's own fields) and `cce-fhir-extension.yaml` (the FHIR fields, which the first refers to). The sender is `cce-beckn-service` (`MessageFactory#signalEmit`).
+**Contract:** the CCE profile of Sygnal, `cce-beckn-service/schema/sygnal-profile/v3.0/`: `cce-sygnal-apis.yaml` (Sygnal's types as Sygnal publishes them, opened) and `cce-fhir-extension.yaml` (the FHIR fields and CCE's rules, which the first refers to). The sender is `cce-beckn-service` (`MessageFactory#signalEmit`).
 
 The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its care alerts there, and the receiver raises them as OpenMRS notifications. It is an extra door into OpenMRS, not a replacement: the existing `POST /api/v1/openmrs/fhir` endpoint is unchanged, and with `OPENMRS_RECEIVER_BECKN_ENABLED=false` the receiver behaves exactly as before Beckn.
 
-> **Change 2026-11-23: extended Sygnal types (profile v3.0).** The `message` of `sygnal/signal/emit` is a `sygnal:Signal` with the care-alert fields directly on it (§3.1): `patientId`, `stepStatus`, `slaStatus`, `fhirVersion` and `resource`. Its `severity` is CCE's level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`). There is no `signalAttributes` bag and no `cce:CceCareAlert` type in the message.
+> **Change 2026-11-23: extended Sygnal types (profile v3.0).** The `message` of `sygnal/signal/emit` is a `sygnal:Signal` with the care-alert fields directly on it (§3.1): `patientId`, `stepStatus`, `slaStatus`, `fhirVersion` and `resource`. Its `severity` is CCE's level (`LOW`, `MEDIUM`, `HIGH`, `CRITICAL`). There is no `signalAttributes` bag and no `cce:CceCareAlert` type in the message. (Since 2026-11-24 `severity` is Sygnal's level and CCE's level is in a `signalAttributes` bag: see the change of that date below.)
 >
 > The customer decided this on 2026-11-23: to open and extend CCE's copy of `sygnal:Signal` (profile v3.0), instead of sending the `cce:CceCareAlert` message (profile v2.0). Sygnal's published schema is not changed. Every participant of this network loads CCE's copy, so the messages validate; a validator that uses Sygnal's published schema would refuse them.
 >
@@ -15,13 +15,24 @@ The receiver gets one Sygnal endpoint, `POST /sygnal/signal/emit`. CCE sends its
 >
 > | Profile | Date | `message` of `sygnal/signal/emit` | Here |
 > |---|---|---|---|
-> | v1.0 | 2026-11-20 | `sygnal:Signal` with the alert in a `signalAttributes` bag | Refused: 400 `SCH_REQUIRED_FIELD_MISSING` (the bag is not read, so the Signal has no `patientId`) |
+> | v1.0 | 2026-11-20 | `sygnal:Signal` with the alert in a `signalAttributes` bag | Refused: 400 `SCH_REQUIRED_FIELD_MISSING` (the alert fields in the bag are not read, so the Signal has no `patientId`) |
 > | v2.0 | 2026-11-23 | The `cce:CceCareAlert` itself (merged into this branch with PR #23) | Refused: 400 `SCH_TYPE_NOT_SUPPORTED` |
 > | v3.0 | 2026-11-23 | `sygnal:Signal` with the care-alert fields on it | The one in use |
 >
 > Unchanged through all three: the action name and path, the Sygnal `context`, the `Ack` / `Nack` bodies and codes, no callbacks, the onix routing, the ids, every setting, and the Spice referral flows. The description at the top of the profile file has the full list of differences from Sygnal.
 >
 > **Change 2026-11-23 (later the same day).** Profile v3.0 is now two files in one folder: `cce-sygnal-apis.yaml` (Sygnal's own fields; the types are open, `additionalProperties: true`, and `Signal.severity` also accepts `LOW` / `MEDIUM` / `HIGH`) and `cce-fhir-extension.yaml` (`SignalFhirExtension`, `CoordinationEventFhirExtension`: the FHIR fields), which the first refers to. The messages on the wire are unchanged. `cce:CceCareAlert` is no longer used anywhere and its schema (`CceCareAlert/v1.0`) is deleted. The notification key prefix is now `SygnalSignal:` (§4). In the Spice referral messages the `performanceAttributes` box is now a `sygnal:CoordinationEvent` ([beckn-integration.md](beckn-integration.md) §3.3); the receiver handles them as before.
+>
+> **Change 2026-11-24: Sygnal's types as Sygnal publishes them; CCE's level of severity in `signalAttributes`.** The customer decided this on 2026-11-24. `cce-sygnal-apis.yaml` now holds `sygnal:Signal` and `sygnal:CoordinationEvent`, and the types they use (`Participant`, `HashRef`, `Area`, `Attributes`), word for word as Sygnal v0.9.0 publishes them, with one change: the two types are open (`additionalProperties: true`). The earlier changes inside the types are gone from that file: `Signal.severity` takes only Sygnal's `INFO`, `WARNING`, `CRITICAL` again. CCE's rules are now in `cce-fhir-extension.yaml`, which can add fields and make rules stricter but not loosen them. `SignalFhirExtension` requires `id` (a UUID), `target`, `severity` and `signalAttributes`, next to the care-alert fields (§3.3).
+>
+> So an alert now carries two levels (§3.1):
+>
+> | Field | Holds |
+> |---|---|
+> | `severity` | Sygnal's level, set by CCE from its own: `CRITICAL` → `CRITICAL`, `HIGH` and `MEDIUM` → `WARNING`, `LOW` → `INFO` |
+> | `signalAttributes` | Sygnal's extension bag: `{ "@context": "<schema base URL>/sygnal-profile/v3.0/cce-context.jsonld", "@type": "cce:CareAlertAttributes", "severity": "HIGH" }`. `severity` here is CCE's own level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
+>
+> The receiver reads CCE's level from `signalAttributes.severity` when the bag's `@type` is `cce:CareAlertAttributes`, else `severity` (§4). The notification severity is the same as before for every CCE level. The log line's `code` keeps CCE's level (§8.2). The rest of the message is unchanged.
 
 Only the CCE care-alert leg uses Sygnal. It replaces the earlier Beckn `on_status` care alert on `/beckn/bap-webhook`. The Spice ↔ OpenMRS referral flows (`/beckn/bpp-webhook/{update,select,init,confirm,status}`, the callbacks to Spice, and Spice's `on_update` / `on_status` on `/beckn/bap-webhook`) stay standard Beckn, and the receiver handles them as before; since 2026-11-23 their `performanceAttributes` box is a `sygnal:CoordinationEvent`: see [beckn-integration.md](beckn-integration.md).
 
@@ -91,9 +102,14 @@ The body is exactly what `cce-beckn-service` builds:
     "id": "<delivery id>",
     "signalType": "SLA_BREACH",
     "target": { "id": "bap.openmrs.nextsteps.mdtlabs.org", "role": "PROVIDER" },
-    "severity": "HIGH",
+    "severity": "WARNING",
     "basis": "CCE care step status: not-started, SLA status: overdue",
     "issuedAt": "2026-11-20T10:00:00.123Z",
+    "signalAttributes": {
+      "@context": "https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/sygnal-profile/v3.0/cce-context.jsonld",
+      "@type": "cce:CareAlertAttributes",
+      "severity": "HIGH"
+    },
     "patientId": "260225-0002-5501",
     "stepStatus": "not-started",
     "slaStatus": "overdue",
@@ -103,7 +119,7 @@ The body is exactly what `cce-beckn-service` builds:
 }
 ```
 
-The `message` is a `sygnal:Signal` as the profile extends it (§3.3). `context.messageId` and `message.id` are both the intelligence service's delivery id. A repeated alert carries the same id.
+The `message` is a `sygnal:Signal` as the profile extends it (§3.3). `severity` is Sygnal's level; CCE's own level is `signalAttributes.severity` (here `HIGH` → `WARNING`). The `@context` of the bag is `<schema base URL>/sygnal-profile/v3.0/cce-context.jsonld`; the default schema base URL is `https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema`. `context.messageId` and `message.id` are both the intelligence service's delivery id. A repeated alert carries the same id.
 
 ### 3.2 Checks
 
@@ -123,13 +139,13 @@ In this order. The first one broken gives a `Nack` (400) with the code shown; no
 | `message.patientId` is present | `SCH_REQUIRED_FIELD_MISSING` |
 | `message.resource` has a `resourceType` | `SCH_REQUIRED_FIELD_MISSING` |
 
-Any other `message.@type` is refused, the `cce:CceCareAlert` of profile v2.0 included. A `signalAttributes` bag is not read: a Signal of profile v1.0, with the alert only in that bag, has no `patientId` of its own and is refused for that. A field the receiver does not know is ignored.
+Any other `message.@type` is refused, the `cce:CceCareAlert` of profile v2.0 included. From the `signalAttributes` bag the receiver reads only CCE's level of severity (§4), not the care-alert fields: a Signal of profile v1.0, with the alert only in that bag, has no `patientId` of its own and is refused for that. The receiver does not check the levels; onix does, against the profile. A field the receiver does not know is ignored.
 
 onix has already validated the schema, so in normal operation only the id checks can fail (a misrouted signal, or the wrong `OPENMRS_RECEIVER_BECKN_*_ID`), or the type and field checks while a sender still uses an older profile.
 
 ### 3.3 The extended `sygnal:Signal`
 
-The fields of `message` that CCE sends. The first seven are Sygnal's own; the ones from `patientId` down are added in CCE's copy of the type (`SignalFhirExtension` in `cce-fhir-extension.yaml`). The type is open in the profile, so onix does not refuse an extra field, and the receiver ignores it.
+The fields of `message` that CCE sends. The first eight are Sygnal's own, as Sygnal publishes them; the ones from `patientId` down are added by CCE's extension (`SignalFhirExtension` in `cce-fhir-extension.yaml`). Sygnal requires only `@type`, `signalType` and `issuedAt`; the extension also requires `id` (a UUID), `target`, `severity` and `signalAttributes` (since 2026-11-24; before, CCE's copy of the type required them). The type is open in the profile, so onix does not refuse an extra field, and the receiver ignores it.
 
 | Field | Required | Use |
 |---|---|---|
@@ -137,9 +153,10 @@ The fields of `message` that CCE sends. The first seven are Sygnal's own; the on
 | `id` | Yes | The delivery id, a UUID; the same as `context.messageId`. The de-duplication key when the resource has no delivery id identifier (§4) |
 | `signalType` | Yes | `SLA_BREACH` when `slaStatus` is `overdue`, `missed` or `breached`, else `FOLLOW_UP_DUE`. Not read by the receiver |
 | `target` | Yes | `{ "id": <context.receiverId>, "role": "PROVIDER" }`. Not read by the receiver |
-| `severity` | Yes | CCE's level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`. CCE's copy of the type accepts these next to Sygnal's `INFO` and `WARNING` |
+| `severity` | Yes | Sygnal's level: `INFO`, `WARNING`, `CRITICAL`. CCE sets it from its own level: `CRITICAL` → `CRITICAL`, `HIGH` and `MEDIUM` → `WARNING`, `LOW` → `INFO`. Read by the receiver only when `signalAttributes` has no CCE level |
 | `basis` | No | A sentence with the step status and the SLA status. Not read by the receiver |
 | `issuedAt` | Yes | When CCE sent the alert. Not read by the receiver |
+| `signalAttributes` | Yes | Sygnal's extension bag (its `Attributes`: `@context` and `@type` required). CCE's: `@context` = `<schema base URL>/sygnal-profile/v3.0/cce-context.jsonld`, `@type` = `cce:CareAlertAttributes`, `severity` = CCE's own level: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL` |
 | `patientId` | Yes | The patient's national id (the id CCE uses) |
 | `stepStatus` | Yes | The step's status, e.g. `not-started`, `completed` |
 | `slaStatus` | No | The SLA status, e.g. `overdue`, `missed` |
@@ -183,7 +200,7 @@ After a valid request, the receiver hands the alert to the `careAlertExecutor` t
 | Notification | From the alert |
 |---|---|
 | `type` | `CCE_ALERT` |
-| `severity` | `message.severity`: `LOW` → `INFO`, `MEDIUM` / `HIGH` → `WARNING`, `CRITICAL` → `CRITICAL` |
+| `severity` | CCE's level, `message.signalAttributes.severity`, when the bag's `@type` is `cce:CareAlertAttributes`; else Sygnal's level, `message.severity`. `CRITICAL` → `CRITICAL`; `HIGH`, `MEDIUM`, `WARNING` → `WARNING`; anything else (`LOW`, `INFO`) → `INFO`. The same result as before 2026-11-24 for every CCE level |
 | `title` | The alert text (cut to 120 characters), else "Care coordination alert" |
 | `body` | `Patient national-id <patientId> · Step status: <stepStatus> · SLA status: <slaStatus> · Step: <protocol step>`; parts without a value are left out; "(not registered in OpenMRS)" after the id when no OpenMRS patient has it |
 | `link` | The patient's chart, when a patient has that national id |
@@ -246,7 +263,7 @@ These two ids sit in the same `receiver.beckn` block as the Spice referral setti
 
 CCE addresses OpenMRS with `context.receiverUri` = OpenMRS's public onix receiver base (e.g. `https://openmrs.example.org/sygnal/receiver`); `onix-cce` appends the action. That URI is a setting of `cce-beckn-service` (its HMIS list), not of this service.
 
-**Schema.** The Sygnal modules of onix validate `message` against the `Signal` type of the profile, `schema/sygnal-profile/v3.0/` in `cce-beckn-service`. The module loads `cce-sygnal-apis.yaml` as its spec, and `cce-fhir-extension.yaml`, which it refers to, must sit in the same folder. These two files are all they need: no object in the message carries `@context`, so there are no payload schemas to load, the extended schema check is off, and the Sygnal modules have no schema folder of their own. Use the same profile version in every onix (v3.0; v1.0 and v2.0 are deleted). The Beckn referral modules have their own schema set: since 2026-11-23 `CoordinationEvent/v3.0` plus the Health* pack ([beckn-integration.md](beckn-integration.md) §8).
+**Schema.** The Sygnal modules of onix validate `message` against the `Signal` type of the profile, `schema/sygnal-profile/v3.0/` in `cce-beckn-service`. The module loads `cce-sygnal-apis.yaml` as its spec, and `cce-fhir-extension.yaml`, which it refers to, must sit in the same folder. These two files are all they need: there are no payload schemas to load, the extended schema check is off, and the Sygnal modules have no schema folder of their own. Since 2026-11-24 one object carries an `@context`, the `signalAttributes` bag (Sygnal's `Attributes` requires it); the bag is checked by the two profile files, like the rest of the message. Use the same profile version in every onix (v3.0; v1.0 and v2.0 are deleted). The Beckn referral modules have their own schema set: since 2026-11-23 `CoordinationEvent/v3.0` plus the Health* pack ([beckn-integration.md](beckn-integration.md) §8).
 
 **Wait.** The receiver answers before the notification is raised, so the answer is fast; onix's default wait is enough.
 
@@ -297,7 +314,7 @@ sygnal direction=IN action=sygnal/signal/emit peer=bpp.cce.nextsteps.mdtlabs.org
 | `transactionId`, `messageId` | ids from `context`; `messageId` is the delivery id |
 | `signalId` | `message.id`, on an accepted alert; the delivery id again |
 | `resourceType` | `CommunicationRequest` or `Task` |
-| `code` | On `ACK`: severity / step status / SLA status. On `NACK`: the error code |
+| `code` | On `ACK`: CCE's severity (from `signalAttributes`, else `severity`, as in §4) / step status / SLA status. On `NACK`: the error code |
 | `result` | `ACK` or `NACK` |
 | `error` | Only on a `Nack` |
 

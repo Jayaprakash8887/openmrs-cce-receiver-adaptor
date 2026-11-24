@@ -31,14 +31,17 @@ public final class SygnalTestMessages {
 
     /**
      * The {@code message} of the alert: a {@code sygnal:Signal} of the CCE profile v3.0, with the
-     * care-alert fields directly on it.
+     * care-alert fields directly on it, Sygnal's level in {@code severity} and CCE's in
+     * {@code signalAttributes}.
      */
     public static String signal() {
         return """
                 {"@type":"sygnal:Signal","id":"%s","signalType":"SLA_BREACH",
-                 "target":{"id":"%s","role":"PROVIDER"},"severity":"HIGH",
+                 "target":{"id":"%s","role":"PROVIDER"},"severity":"WARNING",
                  "basis":"CCE care step status: not-started, SLA status: overdue",
                  "issuedAt":"2026-11-20T10:00:00.123Z",
+                 "signalAttributes":{"@context":"https://raw.githubusercontent.com/openphc/cce-beckn-service/main/schema/sygnal-profile/v3.0/cce-context.jsonld",
+                   "@type":"cce:CareAlertAttributes","severity":"HIGH"},
                  "patientId":"%s","stepStatus":"not-started","slaStatus":"overdue","fhirVersion":"4.0.1",
                  "resource":%s}"""
                 .formatted(DELIVERY_ID, SELF_ID, PATIENT_ID, COMMUNICATION_REQUEST);
